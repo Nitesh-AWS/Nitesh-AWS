@@ -1,0 +1,495 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Base stack for deploying EC2 Instance based on AMI.  Included IAM Role allows SSM Session Manager, but no s3 access."
+
+Parameters:
+
+  pVPCID:
+    Type: "AWS::EC2::VPC::Id"
+    Description: ""
+
+  pVPCCidr:
+    Type: "String"
+    Description: "VPC CIDR for Security Group Ingress"
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}|^$'
+
+  pInstanceSubnet:
+    Type: "AWS::EC2::Subnet::Id"
+    Description: "Private/App Subnet ID for deployment"
+
+  pPrivateIpAddress:
+    Type: "String"
+    Description: "Optional.  Force the instance to have this specific Private IP Address"
+
+  pInstanceAMI:
+    Type: "String"
+    Default: ""
+    Description: "Optional.  Empty entry will use Amazon Linux AMI from internal map (Default Amazon Linux 2, us-east-1)"
+
+  pAmazonLinuxAMI:
+    Type: "String"
+    Default: "true"
+    Description: "Is this AMI an Amazon Linux AMI - Referenced in BlockDeviceMappings"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pInstanceName:
+    Type: "String"
+    Default: ""
+    Description: "Instance Name tag"
+
+  pInstanceType:
+    Type: "String"
+    Default: "t3.medium"
+    Description: "Family and size"
+    AllowedValues:
+      - "t2.micro"
+      - "t2.small"
+      - "t2.medium"
+      - "t2.large"
+      - "t2.xlarge"
+      - "t3.micro"
+      - "t3.small"
+      - "t3.medium"
+      - "t3.large"
+      - "t3a.micro"
+      - "t3a.small"
+      - "t3a.medium"
+      - "t3a.large"
+      - "m4.large"
+      - "m4.xlarge"
+      - "m4.2xlarge"
+      - "m4.4xlarge"
+      - "m4.10xlarge"
+      - "m5.large"
+      - "m5.xlarge"
+      - "m5.2xlarge"
+      - "m5.4xlarge"
+      - "m5.8xlarge"
+      - "m5a.large"
+      - "m5a.xlarge"
+      - "m5a.2xlarge"
+      - "m5a.4xlarge"
+      - "m5a.8xlarge"
+      - "r4.large"
+      - "r4.xlarge"
+      - "r4.2xlarge"
+      - "r4.4xlarge"
+      - "r4.8xlarge"
+      - "r5.large"
+      - "r5.xlarge"
+      - "r5.2xlarge"
+      - "r5.4xlarge"
+      - "r5.8xlarge"
+      - "r5a.large"
+      - "r5a.xlarge"
+      - "r5a.2xlarge"
+      - "r5a.4xlarge"
+      - "r5a.8xlarge"
+    ConstraintDescription: "Please select a valid instance type."
+
+  pInstanceVolumeSize:
+    Type: "Number"
+    Default: "60"
+    Description: "Minimum 8GB, minimum 30GB recommend for Windows."
+    MinValue: "8"
+
+  pKeyPair:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Default: ""
+    Description: "Used for Windows Password recovery"
+
+  pCreateSG:
+    Type: "String"
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: "Create internal VPC access SG"
+
+  pSecGroup:
+    Type: "String"
+    Description: "sg-id if using an existing SG.  Leave blank if creating a new SG."
+
+  pInstanceTermination:
+    Type: "String"
+    Default: "true"
+    Description: "Enable Termination Protection"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pEnableEBSBackups:
+    Type: "String"
+    Default: "true"
+    Description: "Enable scheduled snapshots."
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pScheduledBackups:
+    Type: String
+    Default: "retention_days"
+    Description: "Interval of backups."
+    AllowedValues:
+      - retention_days
+      - retention_weeks
+      - retention_months
+
+  pBackupValue:
+    Type: "Number"
+    Default: "30"
+    Description: "Number of days, weeks, or months of retention."
+    MinValue: "1"
+
+
+  pEnableAutorecovery:
+    Type: String
+    Default: "false"
+    Description: "IMPORTANT:  This will only work on A1, C3, C4, C5, C5n, M3, M4, M5, M5a, P3, R3, R4, R5, R5a, T2, T3, T3a, X1, or X1e instances"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pAutoRecoverySNSARN:
+    Type: String
+    Description: "(Optional) ARN for an SNS Topic to notify on Autorecovery"
+
+
+  pServiceType:
+    Type: "String"
+    Description: "Used to describe the function of a particular resource (e.g. web server, message broker, database)"
+
+
+  pMonitoringPlatform:
+    Type: "String"
+    Default: "None"
+    AllowedValues:
+      - "Datadog"
+      - "CloudWatch"
+      - "None"
+
+  pTagEnvironment:
+    Type: "String"
+    Description: "Environment type for default resource tagging"
+    Default: "production"
+    AllowedValues:
+      - "production"
+      - "staging"
+      - "sandbox"
+      - "test"
+      - "development"
+      - "qa"
+
+  pTagOwner:
+    Type: "String"
+    Default: ""
+    Description: "Owner of the resources.  Person/Department,etc"
+
+
+Metadata:
+  AWS::CloudFormation::Interface:
+      ParameterGroups:
+        - Label:
+            default: "Network Settings"
+          Parameters:
+              - pVPCID
+              - pVPCCidr
+              - pInstanceSubnet
+              - pPrivateIpAddress
+        - Label:
+            default: "Instance Settings"
+          Parameters:
+            - pInstanceName
+            - pInstanceType
+            - pInstanceAMI
+            - pAmazonLinuxAMI
+            - pKeyPair
+            - pCreateSG
+            - pSecGroup
+            - pInstanceTermination
+            - pInstanceVolumeSize
+            - pEnableEBSBackups
+            - pScheduledBackups
+            - pBackupValue
+        - Label:
+            default: "Monitoring"
+          Parameters:
+            - pMonitoringPlatform
+        - Label:
+            default: "EC2 Autorecovery"
+          Parameters:
+            - pEnableAutorecovery
+            - pAutoRecoverySNSARN
+        - Label:
+            default: "Tagging"
+          Parameters:
+            - pServiceType
+            - pTagEnvironment
+            - pTagOwner
+      ParameterLabels:
+        pVPCID:
+          default: "VPC ID"
+        pVPCCidr:
+          default: "VPC CIDR"
+        pInstanceSubnet:
+          default: "Instance Subnet"
+        pPrivateIpAddress:
+          default: "Private IP Address"
+        pInstanceName:
+          default: "Instance Name"
+        pInstanceType:
+          default: "Instance Type"
+        pInstanceAMI:
+          default: "Instance AMI"
+        pAmazonLinuxAMI:
+          default: "Amazon Linux AMI"
+        pKeyPair:
+          default: "Key Pair"
+        pCreateSG:
+          default: "Create vpc-general SG"
+        pSecGroup:
+          default: "Security Group"
+        pInstanceTermination:
+          default: "Instance Termination"
+        pInstanceVolumeSize:
+          default: "Volume Size"
+        pEnableEBSBackups:
+          default: "Enable EBS Backups"
+        pScheduledBackups:
+          default: "Backup Schedule Type"
+        pBackupValue:
+          default: "Backup Schedule Value"
+        pEnableAutorecovery:
+          default: "Enable Autorecovery?"
+        pAutoRecoverySNSARN:
+          default: "SNS Autorecovery Notification"
+        pServiceType:
+          default: "Function of a particular resource (e.g. web server, message broker, database)"
+        pMonitoringPlatform:
+          default: "Select a Monitoring Platform (Datadog/CloudWatch/None)"
+        pTagEnvironment:
+          default: "Environment Tag"
+        pTagOwner:
+          default: "Owner"
+
+
+# Map Updated 9/5/2019
+# for i in $(aws ec2 describe-regions | jq -r '.Regions[].RegionName' | sort); do
+# echo -n "$i: ";
+# aws --region $i ec2 describe-images --owners amazon --filters "Name=name,Values=amzn2-ami-hvm-2.0.20190618-x86_64-gp2" | jq -r '.Images[].ImageId'
+# done
+
+Mappings:
+  RegionMap:
+    ap-east-1:
+      "amazonLinuxAmi": "ami-570c7726"            # Asia East (Hong Kong)
+    ap-northeast-1:
+      "amazonLinuxAmi": "ami-0c3fd0f5d33134a76"   # Asia Pacific (Tokyo)
+    ap-northeast-2:
+      "amazonLinuxAmi": "ami-095ca789e0549777d"   # Asia Pacific (Seoul)
+    ap-south-1:
+      "amazonLinuxAmi": "ami-0d2692b6acea72ee6"   # Asia Pacific (Mumbai)
+    ap-southeast-1:
+      "amazonLinuxAmi": "ami-01f7527546b557442"   # Asia Pacific (Singapore)
+    ap-southeast-2:
+      "amazonLinuxAmi": "ami-0dc96254d5535925f"   # Asia Pacific (Sydney)
+    ca-central-1:
+      "amazonLinuxAmi": "ami-0d4ae09ec9361d8ac"   # Canada (Central)
+    eu-central-1:
+      "amazonLinuxAmi": "ami-0cc293023f983ed53"   # EU (Frankfurt)
+    eu-north-1:
+      "amazonLinuxAmi": "ami-3f36be41"   # EU (Stockholm)
+    eu-west-1:
+      "amazonLinuxAmi": "ami-0bbc25e23a7640b9b"   # EU (Ireland)
+    eu-west-2:
+      "amazonLinuxAmi": "ami-0d8e27447ec2c8410"   # EU (London)
+    eu-west-3:
+      "amazonLinuxAmi": "ami-0adcddd3324248c4c"   # EU (Paris)
+    sa-east-1:
+      "amazonLinuxAmi": "ami-058943e7d9b9cabfb"   # South America (S?o Paulo)
+    us-east-1:
+      "amazonLinuxAmi": "ami-0b898040803850657"   # US East (N. Virginia)
+    us-east-2:
+      "amazonLinuxAmi": "ami-0d8f6eb4f641ef691"   # US East (Ohio)
+    us-west-1:
+      "amazonLinuxAmi": "ami-056ee704806822732"   # US West (N. California)
+    us-west-2:
+      "amazonLinuxAmi": "ami-082b5a644766e0e6f"   # US West (Oregon)
+
+
+Conditions:
+
+  CondEnableEBSBackups: !Equals [true, !Ref pEnableEBSBackups]
+  CondOther: !Equals [!Ref pAmazonLinuxAMI, "false"]
+  CondAmazonLinux: !Equals [!Ref pAmazonLinuxAMI, "true"]
+  CondUseCustomAmi: !Not [!Equals ["", !Ref pInstanceAMI]]
+  CondCreateSG: !Equals [true, !Ref pCreateSG]
+  CondAutorecovery: !Equals [true, !Ref pEnableAutorecovery]
+  CondAutorecoverySNS: !Not [!Equals ["", !Ref pAutoRecoverySNSARN]]
+  CondDatadogMonitoring: !Equals ["Datadog", !Ref pMonitoringPlatform]
+  CondCloudWatchMonitoring: !Equals ["CloudWatch", !Ref pMonitoringPlatform]
+  CondSetPrivateIP: !Not [!Equals ["", !Ref pPrivateIpAddress]]
+
+Resources:
+
+  #
+  # EC2 Instances
+  #
+
+  sgVpcGeneral:
+    Type: "AWS::EC2::SecurityGroup"
+    Condition: "CondCreateSG"
+    Properties:
+      GroupName: "SG-vpc-general"
+      GroupDescription: "internal VPC access"
+      VpcId: !Ref pVPCID
+      SecurityGroupIngress:
+        - IpProtocol: "-1"
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref pVPCCidr
+          Description: "VPC internal"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: -1
+          ToPort: -1
+          CidrIp: "0.0.0.0/0"
+          Description: "all"
+      Tags:
+        - Key: "Name"
+          Value: "SG-vpc-general"
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+
+  iamEC2Instance:
+    Type: "AWS::IAM::Role"
+    Properties:
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      RoleName: !Ref pInstanceName
+
+  iamEC2Profile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - !Ref iamEC2Instance
+      InstanceProfileName: !Ref pInstanceName
+
+  ec2Instance01:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      BlockDeviceMappings:
+        -
+          DeviceName: "/dev/xvda"
+          Ebs:
+            VolumeType: "gp2"
+            VolumeSize: !Ref pInstanceVolumeSize
+      DisableApiTermination: !Ref pInstanceTermination
+      EbsOptimized: false
+      IamInstanceProfile: !Ref iamEC2Profile
+      ImageId: !If [ CondUseCustomAmi, !Ref pInstanceAMI, !FindInMap [RegionMap, !Ref "AWS::Region", amazonLinuxAmi ] ]
+      InstanceType: !Ref pInstanceType
+      KeyName: !Ref pKeyPair
+      PrivateIpAddress: !If [CondSetPrivateIP, !Ref pPrivateIpAddress, !Ref "AWS::NoValue"]
+      SecurityGroupIds:
+        - !If [CondCreateSG, !Ref sgVpcGeneral, !Ref pSecGroup]
+      SubnetId: !Ref pInstanceSubnet
+      Tags:
+        - Key: "Name"
+          Value: !Ref pInstanceName
+        - Key: "backup"
+          Value: !If [ CondEnableEBSBackups, "yes", "no" ]
+        - Key: !Ref pScheduledBackups
+          Value: !Ref pBackupValue
+        - Key: "managed-by"
+          Value: cloudformation
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+        - Key: "ssm"
+          Value: "yes"
+        - Key: "service"
+          Value: !Ref pServiceType
+        - Key: "datadog"
+          Value: !If [ CondDatadogMonitoring, "yes", "no" ]
+        - Key: "cloudwatch-monitoring"
+          Value: !If [ CondCloudWatchMonitoring, "yes", "no" ]
+      # UserData:
+      #   Fn::Base64: !Sub |
+      #   # For Linux, uncomment below and add your code:
+      #     # !/bin/bash
+      #     # Begin bash code:
+      #
+      #     # End bash code.
+      #
+      #   # For Windows, uncomment below and add your code:
+      #     <powershell>
+      #     # Begin PS code:
+      #
+      #     </powershell>
+
+  # These Status Checks (with recovery events) are added EC2 Autorecovery is enabled
+
+  StatusCheckRecover:
+    Type: AWS::CloudWatch::Alarm
+    Condition: "CondAutorecovery"
+    Properties:
+      AlarmActions:
+        # Works on: A1, C3, C4, C5, C5n, M3, M4, M5, M5a, P3, R3, R4, R5, R5a, T2, T3, T3a, X1, or X1e
+        # Does not work on: C5d, M5d, R5d, F1, H1, D2, I2, I3, I3en, P3dn, Z1d, and bare metal instances
+        - !Sub "arn:aws:automate:${AWS::Region}:ec2:recover"
+        # Add an SNS Topic if an ARN was provided
+        - !If [CondAutorecoverySNS, !Ref pAutoRecoverySNSARN, !Ref "AWS::NoValue"]
+      AlarmDescription: "Trigger a recovery when system status check fails for 3 consecutive minutes."
+      ComparisonOperator: "GreaterThanThreshold"
+      Dimensions:
+        - Name: "InstanceId"
+          Value: !Ref ec2Instance01
+      EvaluationPeriods: 3
+      MetricName: "StatusCheckFailed_System"
+      Namespace: "AWS/EC2"
+      Period: 60
+      Statistic: "Minimum"
+      Threshold: 0
+
+  StatusCheckReboot:
+    Type: AWS::CloudWatch::Alarm
+    Condition: "CondAutorecovery"
+    Properties:
+      AlarmActions:
+        - !Sub "arn:aws:automate:${AWS::Region}:ec2:reboot"
+        # Add an SNS Topic if an ARN was provided
+        - !If [CondAutorecoverySNS, !Ref pAutoRecoverySNSARN, !Ref "AWS::NoValue"]
+      AlarmDescription: "Trigger a reboot when instance status check fails for 3 consecutive minutes."
+      ComparisonOperator: "GreaterThanThreshold"
+      Dimensions:
+        - Name: "InstanceId"
+          Value: !Ref ec2Instance01
+      EvaluationPeriods: 3
+      MetricName: "StatusCheckFailed_Instance"
+      Namespace: "AWS/EC2"
+      Period: 60
+      Statistic: "Minimum"
+      Threshold: 0
+
+Outputs:
+
+  Version:
+    Value: "ec2-generic-1.1"
+    Description: "Template Version"

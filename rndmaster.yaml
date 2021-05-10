@@ -1,0 +1,191 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Metadata:
+  License: Apache-2.0
+Description: 'This template creates two IAM roles based on the parameters specified.'
+
+Parameters:
+
+  AdminiAccessRoleName:
+    Type: String
+    Description: 'Specify Role Name for Administrator Access'
+
+  BillingAccessRoleName:
+    Type: String
+    Description: 'Specify Role Name for Administrator Access'
+
+  ReadOnlyAccessRoleName:
+    Type: String
+    Description: 'Specify Role Name for Administrator Access'
+
+  EC2L2AccessRoleName:
+    Type: String
+    Description: 'Specify Role Name for Administrator Access'
+
+  AdministratorAccessPolicy:
+    Type: String
+    Description: 'ARN of AWS managed policy'
+    Default: 'arn:aws:iam::aws:policy/AdministratorAccess'
+
+  BillingAccessPolicy:
+    Type: String
+    Description: 'ARN of AWS managed policy'
+    Default: 'arn:aws:iam::aws:policy/job-function/Billing'
+
+  ReadOnlyAccessPolicy:
+    Type: String
+    Description: 'ARN of AWS managed policy'
+    Default: 'arn:aws:iam::aws:policy/ReadOnlyAccess'
+
+
+  AdministratorAccess:
+    Type: "String"
+    Description: "Admin access required ?"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  BillingAccess:
+    Type: "String"
+    Description: "billing access required ?"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  ReadOnlyAccess:
+    Type: "String"
+    Description: "read only access required?"
+    AllowedValues:
+      - "true"
+      - "false"
+
+
+  EC2L2Access:
+    Type: "String"
+    Description: "EC2 L2 access required?"
+    AllowedValues:
+      - "true"
+      - "false"
+
+
+
+Conditions:
+  CondCreateAdminAccess: !Equals ["true", !Ref AdministratorAccess]
+  CondCreateBillingAccess: !Equals ["true", !Ref BillingAccess]
+  CondCreateReadOnlyAccess: !Equals ["true", !Ref ReadOnlyAccess]
+  CondCreateEC2L2Access: !Equals ["true", !Ref EC2L2Access]
+
+Resources:
+  AWSAdministratorAccess:
+    Type: 'AWS::IAM::Role'
+    Condition: "CondCreateAdminAccess"
+    Properties:
+      RoleName: !Ref AdminiAccessRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref AdministratorAccessPolicy
+
+  AWSBillingAccess:
+    Type: 'AWS::IAM::Role'
+    Condition: "CondCreateBillingAccess"
+    Properties:
+      RoleName: !Ref BillingAccessRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref BillingAccessPolicy
+
+
+  AWSReadOnlyAccess:
+    Type: 'AWS::IAM::Role'
+    Condition: "CondCreateReadOnlyAccess"
+    Properties:
+      RoleName: !Ref ReadOnlyAccessRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref ReadOnlyAccessPolicy
+
+
+  AWSEC2L2Access:
+    Type: 'AWS::IAM::Role'
+    Condition: "CondCreateEC2L2Access"
+    Properties:
+      RoleName: !Ref EC2L2AccessRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref EC2L2Policy
+        - !Ref ReadOnlyAccessPolicy
+    DependsOn: EC2L2Policy
+
+
+
+  EC2L2Policy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: EC2AccessL2
+      Path: /
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'ec2:DetachVolume*'
+              - 'ec2:AttachVolume*'
+              - 'ec2:RebootInstances*'
+              - 'ec2:ModifyVolume*'
+              - 'ec2:DeregisterImage*'
+              - 'ec2:DeleteSnapshot*'
+              - 'ec2:ModifyVolumeAttribute*'
+              - 'ec2:CreateKeyPair*'
+              - 'ec2:RegisterImage*'
+              - 'ec2:CreateImage*'
+              - 'ec2:RunInstances*'
+              - 'ec2:ModifyImageAttribute*'
+              - 'ec2:StopInstances*'
+              - 'ec2:CreateVolume*'
+              - 'ec2:DeleteVolume*'
+              - 'ec2:StartInstances*'
+              - 'ec2:CreateSnapshot*'
+              - 'ec2:ModifyInstanceAttribute*'
+            Resource: '*'
+
+
+
+Outputs:
+  L2PolicyArn:
+    Value: !Ref 'EC2L2Policy'
+    Description: Policy Name for L2 access

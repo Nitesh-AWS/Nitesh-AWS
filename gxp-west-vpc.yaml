@@ -1,0 +1,1227 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Creates a VPC with 2 AZs each containing 1 Nat Gateway, 1 Public Subnet, 1 Private App Subnet,
+  1 Private Data Subnet, VPC Flowlogs, and S3 and DynamoDB VPC Endpoints.  A VPG is also created.
+
+
+Parameters:
+
+
+  pVpcName:
+    Type: "String"
+    Description: "Account prefix for vpc & subnet names"
+    Default: "vir-"
+
+  pAvailabilityZone1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: us-east-1a
+
+  pAvailabilityZone2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: us-west-2b
+
+  pCidrPrefix:
+    Type: "String"
+    Description: "Valid ranges 172.16 - 172.31, 192.168, 10.0 - 10.255."
+    Default: "10.210"
+
+  pCidrSuffix:
+    Type: "String"
+    Description: "Valid bit range (/16 or /21)"
+    Default: "24.0/21"
+
+  pCidrSuffixPublic1:
+    Type: "String"
+    Description: "Joined with VPC CIDR Prefix"
+    Default: "24.0/24"
+
+  pCidrSuffixPublic2:
+    Type: "String"
+    Description: "Joined with VPC CIDR Prefix"
+    Default: "25.0/24"
+
+  pCidrSuffixPriv1Layer1:
+    Type: "String"
+    Description: "Joined with VPC CIDR Prefix"
+    Default: "26.0/24"
+
+  pCidrSuffixPriv2Layer1:
+    Type: "String"
+    Description: "Joined with VPC CIDR Prefix"
+    Default: "27.0/24"
+
+  pCidrSuffixData1:
+    Type: "String"
+    Description: "Joined with VPC CIDR Prefix"
+    Default: "28.0/24"
+
+  pCidrSuffixData2:
+    Type: "String"
+    Description: "Joined with VPC CIDR Prefix"
+    Default: "29.0/24"
+
+  pFlowlogRoleCreate:
+    Type: "String"
+    Description: "Select false if the role already exists."
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pFlowlogRoleExistingName:
+    Type: "String"
+    Description: "Enter name, not ARN.  Omit if flowlog role creation is true."
+    Default: ""
+
+  pFlowLogRetention:
+      Type: "Number"
+      Description: "The number of days to keep VPC flowlogs in CloudWatch."
+      Default: "7"
+
+  pTagEnvironment:
+    Type: "String"
+    Description: "Environment type for default resource tagging"
+    Default: "production"
+    AllowedValues:
+      - production
+      - staging
+      - sandbox
+      - test
+      - development
+      - qa
+      - dr
+
+  pTagOwner:
+    Type: "String"
+    Description: "Owner of the resources.  Person/Department,etc"
+    Default: ""
+
+
+  pDataSubnetInternetAccess:
+    Type: "String"
+    Description: "NAT is used for EC2 instances with databases that require internet access or system updates."
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+
+
+
+
+Metadata:
+  AWS::CloudFormation::Interface:
+      ParameterGroups:
+        - Label:
+            default: "VPC Network Settings"
+          Parameters:
+              - pVpcName
+              - pAvailabilityZone1
+              - pAvailabilityZone2
+              - pCidrPrefix
+              - pCidrSuffix
+              - pCidrSuffixPublic1
+              - pCidrSuffixPublic2
+              - pCidrSuffixPriv1Layer1
+              - pCidrSuffixPriv2Layer1
+              - pCidrSuffixData1
+              - pCidrSuffixData2
+              - pDataSubnetInternetAccess
+        - Label:
+            default: "Flowlog Settings"
+          Parameters:
+            - pFlowlogRoleCreate
+            - pFlowlogRoleExistingName
+            - pFlowLogRetention
+        - Label:
+            default: "Tagging"
+          Parameters:
+            - pTagEnvironment
+            - pTagOwner
+      ParameterLabels:
+        pVpcName:
+          default: "VPC Name Prefix"
+        pAvailabilityZone1:
+          default: "AZ 1"
+        pAvailabilityZone2:
+          default: "AZ 2"
+        pCidrPrefix:
+          default: "VPC CIDR Prefix"
+        pCidrSuffix:
+          default: "VPC CIDR Suffix & Bits"
+        pCidrSuffixPublic1:
+          default: "AZ 1 Public Subnet Suffix"
+        pCidrSuffixPublic2:
+          default: "AZ 2 Public Subnet Suffix"
+        pCidrSuffixPriv1Layer1:
+          default: "AZ 1 Private Subnet Suffix"
+        pCidrSuffixPriv2Layer1:
+          default: "AZ 2 Private Subnet Suffix"
+        pCidrSuffixData1:
+          default: "AZ 1 Data Subnet Suffix"
+        pCidrSuffixData2:
+          default: "AZ 2 Data Subnet Suffix"
+        pFlowlogRoleCreate:
+          default: "Create flowlog role"
+        pFlowlogRoleExistingName:
+          default: "Existing flowlog role name"
+        pFlowLogRetention:
+          default: "Flowlog Retention"
+        pTagEnvironment:
+          default: "Environment Tag"
+        pTagOwner:
+          default: "Owner Tag"
+        pDataSubnetInternetAccess:
+          default: "Allow Data Subnets Internet Egress"
+
+Conditions:
+
+  CondpDataSubnetInternetAccess: !Equals [true, !Ref pDataSubnetInternetAccess]
+  CondCreateFlowlogRole: !Equals [true, !Ref pFlowlogRoleCreate]
+
+Resources:
+
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:  !Join [ "", [!Ref pCidrPrefix, ".", !Ref pCidrSuffix]]
+      InstanceTenancy: default
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref "AWS::StackName", IGW]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  gw1:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC1
+      InternetGatewayId: !Ref InternetGateway
+
+  DHCPOpt1:
+    Type: AWS::EC2::DHCPOptions
+    Properties:
+      DomainName: ec2.internal
+      DomainNameServers: [ "AmazonProvidedDNS" ] #separate multiple servers with commas, left to right is order in which they are advertised
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref "AWS::StackName", DHCPOpt1]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  DHCPAssoc1:
+    Type: AWS::EC2::VPCDHCPOptionsAssociation
+    Properties:
+      VpcId: !Ref VPC1
+      DhcpOptionsId: !Ref DHCPOpt1
+
+  NATeIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NATeIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NATgw1:
+    DependsOn: gw1
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATeIP1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  NATgw2:
+    DependsOn: gw1
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATeIP2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+
+  EndpointS3:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds:
+        - !Ref RouteTablePublic1
+        - !Ref RouteTablePriv1Layer1
+        - !Ref RouteTablePrivData1
+        - !Ref RouteTablePublic2
+        - !Ref RouteTablePriv2Layer1
+        - !Ref RouteTablePrivData2
+      ServiceName: !Join [., ["com.amazonaws", !Ref "AWS::Region", "s3"]]
+      VpcId: !Ref VPC1
+
+  EndpointDynamoDB:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds:
+        - !Ref RouteTablePublic1
+        - !Ref RouteTablePriv1Layer1
+        - !Ref RouteTablePrivData1
+        - !Ref RouteTablePublic2
+        - !Ref RouteTablePriv2Layer1
+        - !Ref RouteTablePrivData2
+      ServiceName: !Join [., ["com.amazonaws", !Ref "AWS::Region", "dynamodb"]]
+      VpcId: !Ref VPC1
+
+  # Public Subnet - AZ 1
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixPublic1]]
+      AvailabilityZone: !Ref pAvailabilityZone1
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone1, "Public Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTablePublic1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone1, "Public Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  PublicSubnetRouteTableAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePublic1
+      SubnetId: !Ref PublicSubnet1
+
+  subnetaclPublic1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPublic1
+      SubnetId: !Ref PublicSubnet1
+
+  NACLPublic1:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone1, "Public Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  NACLPublic1IngressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPublic1
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  NACLPublic1EgressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPublic1
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  PublicSubnet1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePublic1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+
+  # Public Subnet - AZ 2
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixPublic2]]
+      AvailabilityZone: !Ref pAvailabilityZone2
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone2, "Public Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTablePublic2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone2, "Public Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  PublicSubnetRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePublic2
+      SubnetId: !Ref PublicSubnet2
+
+  subnetaclPublic2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPublic2
+      SubnetId: !Ref PublicSubnet2
+
+  NACLPublic2:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone2, "Public Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  NACLPublic2IngressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPublic2
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  NACLPublic2EgressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPublic2
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  PublicSubnet2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePublic2
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Private Layer 1 - AZ 1
+  SubnetPriv1Layer1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixPriv1Layer1]]
+      AvailabilityZone: !Ref pAvailabilityZone1
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone1, "Private Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTablePriv1Layer1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone1, "Private Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTableAssocPriv1Layer1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePriv1Layer1
+      SubnetId: !Ref SubnetPriv1Layer1
+
+  subnetaclPriv1Layer1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPriv1Layer1
+      SubnetId: !Ref SubnetPriv1Layer1
+
+  NACLPriv1Layer1:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        -  Key: Name
+           Value:  !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone1, "Private Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  NACLPriv1Layer1EgressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPriv1Layer1
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  NACLPriv1Layer1IngressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !Join [ "", [!Ref pCidrPrefix,  ".", !Ref pCidrSuffix]]
+      Egress: false
+      NetworkAclId: !Ref NACLPriv1Layer1
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+
+
+  NACLPriv1Layer1IngressRule3:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPriv1Layer1
+      Protocol: 17
+      PortRange:
+        From: 123
+        To: 123
+      RuleAction: allow
+      RuleNumber: 120
+
+  NACLPriv1Layer1IngressRule4:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPriv1Layer1
+      Protocol: 6
+      PortRange:
+        From: 32768
+        To: 65535
+      RuleAction: allow
+      RuleNumber: 250
+
+  NACLPriv1Layer1IngressRule5:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPriv1Layer1
+      Protocol: 17
+      PortRange:
+        From: 32768
+        To: 65535
+      RuleAction: allow
+      RuleNumber: 260
+
+  SubnetPriv1Layer1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePriv1Layer1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATgw1
+
+
+  # Private Layer 1 - AZ 2
+  SubnetPriv2Layer1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixPriv2Layer1]]
+      AvailabilityZone: !Ref pAvailabilityZone2
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone2, "Private Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTablePriv2Layer1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone2, "Private Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTableAssocPriv2Layer1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePriv2Layer1
+      SubnetId: !Ref SubnetPriv2Layer1
+
+  subnetaclPriv2Layer1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPriv2Layer1
+      SubnetId: !Ref SubnetPriv2Layer1
+
+  NACLPriv2Layer1:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        -  Key: Name
+           Value:  !Join [" - ", [!Ref pVpcName, !Ref pAvailabilityZone2, "Private Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  NACLPriv2Layer1EgressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPriv2Layer1
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  NACLPriv2Layer1IngressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !Join [ "", [!Ref pCidrPrefix,  ".", !Ref pCidrSuffix]]
+      Egress: false
+      NetworkAclId: !Ref NACLPriv2Layer1
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  NACLPriv2Layer1IngressRule3:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPriv2Layer1
+      Protocol: 17
+      PortRange:
+        From: 123
+        To: 123
+      RuleAction: allow
+      RuleNumber: 120
+
+  NACLPriv2Layer1IngressRule4:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPriv2Layer1
+      Protocol: 6
+      PortRange:
+        From: 32768
+        To: 65535
+      RuleAction: allow
+      RuleNumber: 250
+
+  NACLPriv2Layer1IngressRule5:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPriv2Layer1
+      Protocol: 17
+      PortRange:
+        From: 32768
+        To: 65535
+      RuleAction: allow
+      RuleNumber: 260
+
+  SubnetPriv2Layer1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePriv2Layer1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATgw2
+
+
+  # Data Subnet - AZ1
+  SubnetPrivData1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join [ ".", [!Ref pCidrPrefix, !Ref pCidrSuffixData1]]
+      AvailabilityZone: !Ref pAvailabilityZone1
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [ " - ", [!Ref pVpcName, !Ref pAvailabilityZone1, "Private Data Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTablePrivData1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [ " - ", [!Ref pVpcName, !Ref pAvailabilityZone1, "Private Data"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTableAssocPrivData1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePrivData1
+      SubnetId: !Ref SubnetPrivData1
+
+  SubnetPrivData1Route:
+    Type: AWS::EC2::Route
+    Condition: CondpDataSubnetInternetAccess
+    Properties:
+      RouteTableId: !Ref RouteTablePrivData1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATgw1
+
+  subnetaclPrivateData1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPrivateData1
+      SubnetId: !Ref SubnetPrivData1
+
+  NACLPrivateData1:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [ " - ",  [!Ref pVpcName, !Ref pAvailabilityZone1, "Private Data Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  NACLPrivateData1EgressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPrivateData1
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+
+
+
+
+
+  NACLPrivateData1IngressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !Join [ "", [!Ref pCidrPrefix,  ".", !Ref pCidrSuffix]]
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateData1
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  NACLPrivateData1IngressRule3:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: CondpDataSubnetInternetAccess
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateData1
+      Protocol: 17
+      PortRange:
+        From: 123
+        To: 123
+      RuleAction: allow
+      RuleNumber: 120
+
+  NACLPrivateData1IngressRule4:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: CondpDataSubnetInternetAccess
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateData1
+      Protocol: 6
+      PortRange:
+        From: 32768
+        To: 65535
+      RuleAction: allow
+      RuleNumber: 250
+
+  NACLPrivateData1IngressRule5:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: CondpDataSubnetInternetAccess
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateData1
+      Protocol: 17
+      PortRange:
+        From: 32768
+        To: 65535
+      RuleAction: allow
+      RuleNumber: 260
+
+
+  # Data Subnet - AZ2
+  SubnetPrivData2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join [ ".", [!Ref pCidrPrefix, !Ref pCidrSuffixData2]]
+      AvailabilityZone: !Ref pAvailabilityZone2
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [ " - ", [!Ref pVpcName, !Ref pAvailabilityZone2, "Private Data Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTablePrivData2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [ " - ", [!Ref pVpcName, !Ref pAvailabilityZone2, "Private Data"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  RouteTableAssocPrivData2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePrivData2
+      SubnetId: !Ref SubnetPrivData2
+
+  SubnetPrivData2Route:
+    Type: AWS::EC2::Route
+    Condition: CondpDataSubnetInternetAccess
+    Properties:
+      RouteTableId: !Ref RouteTablePrivData2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATgw2
+
+  subnetaclPrivateData2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPrivateData2
+      SubnetId: !Ref SubnetPrivData2
+
+  NACLPrivateData2:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Join [ " - ", [!Ref pVpcName, !Ref pAvailabilityZone2, "Private Data Subnet"]]
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: managed-by
+          Value: cloudformation
+        - Key: owner
+          Value: !Ref pTagOwner
+
+  NACLPrivateData2EgressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPrivateData2
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  NACLPrivateData2IngressRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !Join [ "", [!Ref pCidrPrefix,  ".", !Ref pCidrSuffix]]
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateData2
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+
+  NACLPrivateData2IngressRule3:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: CondpDataSubnetInternetAccess
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateData2
+      Protocol: 17
+      PortRange:
+        From: 123
+        To: 123
+      RuleAction: allow
+      RuleNumber: 120
+
+  NACLPrivateData2IngressRule4:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: CondpDataSubnetInternetAccess
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateData2
+      Protocol: 6
+      PortRange:
+        From: 32768
+        To: 65535
+      RuleAction: allow
+      RuleNumber: 250
+
+  NACLPrivateData2IngressRule5:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: CondpDataSubnetInternetAccess
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateData2
+      Protocol: 17
+      PortRange:
+        From: 32768
+        To: 65535
+      RuleAction: allow
+      RuleNumber: 260
+
+
+  # VPC Flowlogs
+
+  FlowlogPublishLogRole:
+    Type: AWS::IAM::Role
+    Condition: CondCreateFlowlogRole
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - vpc-flow-logs.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: flowlog-publish
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            Resource:
+            - arn:aws:logs:*:*:*
+      RoleName: !If
+        - CondCreateFlowlogRole
+        - !Join [ "-", [!Ref "AWS::StackName", "flowlog-role"]]
+        - !Ref pFlowlogRoleExistingName
+
+  LogRoleInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: CondCreateFlowlogRole
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: FlowlogPublishLogRole
+
+  VPCFlowLogsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:  !Join [ "-", [!Ref "AWS::StackName",!Ref "AWS::Region",FlowLogGroup]]
+      RetentionInDays: !Ref pFlowLogRetention
+
+  VPCFlowLogs:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      DeliverLogsPermissionArn : !If
+        - CondCreateFlowlogRole
+        - !GetAtt FlowlogPublishLogRole.Arn
+        - !Join ["",["arn:aws:iam::", !Ref "AWS::AccountId", ":role/", !Ref pFlowlogRoleExistingName]]
+      LogGroupName: !Ref VPCFlowLogsLogGroup
+      ResourceId: !Ref VPC1
+      ResourceType: VPC
+      TrafficType: ALL
+
+  VPCFlowLogsS3:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      LogDestination: "arn:aws:s3:::vir-org-vpc-flowlogs-us-west-2"
+      LogDestinationType: s3
+      ResourceId: !Ref VPC1
+      ResourceType: VPC
+      TrafficType: ALL
+      Tags:
+        -
+          Key: Name
+          Value: vir-org-flowlogs
+
+
+Outputs:
+
+  Version:
+    Value: "vpc-2.7"
+    Description: "Template Version"
+
+  StackVPCID:
+    Description: "VPC ID"
+    Value: !Ref VPC1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", VPCID]]
+
+  PublicSubnets:
+    Value: !Join [ ",", [ !Ref PublicSubnet1, !Ref PublicSubnet2 ] ]
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", PublicSubnets]]
+
+  ApplicationSubnets:
+    Value: !Join [ ",", [ !Ref SubnetPriv1Layer1 , !Ref  SubnetPriv2Layer1] ]
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", ApplicationSubnets]]
+
+  DataSubnets:
+    Value: !Join [ ",", [ !Ref SubnetPrivData1 , !Ref  SubnetPrivData2] ]
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", DataSubnets]]
+
+  DataSubnet1:
+    Description: "First Private Data Subnet ID"
+    Value: !Ref SubnetPrivData1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", DataSubnet1]]
+
+  DataSubnet2:
+    Description: "Second Private Data Subnet ID"
+    Value: !Ref SubnetPrivData2
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", DataSubnet2]]
+
+  AppSubnet1:
+    Description: "First Private Application Subnet ID"
+    Value: !Ref SubnetPriv1Layer1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", AppSubnet1]]
+
+  AppSubnet2:
+    Description: "Second Private Application Subnet ID"
+    Value: !Ref SubnetPriv2Layer1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", AppSubnet2]]
+
+  PubSubnet1:
+    Description: "First Public Subnet ID"
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", PubSubnet1]]
+
+  PubSubnet2:
+    Description: "Second Public Subnet ID"
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", PubSubnet2]]
+
+# vpc and subnet cidrs
+
+  VPCCidr:
+    Description: "VPC Cidr"
+    Value: !GetAtt VPC1.CidrBlock
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", VPCCidr]]
+
+  DataSubnet1Cidr:
+    Description: "First Private Data Subnet Cidr"
+    Value: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixData1]]
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", DataSubnet1Cidr]]
+
+  DataSubnet2Cidr:
+    Description: "Second Private Data Subnet Cidr"
+    Value: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixData2]]
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", DataSubnet2Cidr]]
+
+  AppSubnet1Cidr:
+    Description: "First Private Application Subnet Cidr"
+    Value: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixPriv1Layer1]]
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", AppSubnet1Cidr]]
+
+  AppSubnet2Cidr:
+    Description: "Second Private Application Subnet Cidr"
+    Value: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixPriv2Layer1]]
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", AppSubnet2Cidr]]
+
+  PubSubnet1Cidr:
+    Description: "First Public Subnet Cidr"
+    Value: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixPublic1]]
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", PubSubnet1Cidr]]
+
+  PubSubnet2Cidr:
+    Description: "Second Public Subnet Cidr"
+    Value: !Join [ ., [!Ref pCidrPrefix, !Ref pCidrSuffixPublic2]]
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", PubSubnet2Cidr]]
+
+#for other stacks to add routing rules
+
+  rtDataSubnet1:
+    Description: "First Private Data Subnet Route Table ID"
+    Value: !Ref RouteTablePrivData1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", RouteTablePrivData1]]
+
+  rtDataSubnet2:
+    Description: "Second Private Data Subnet Route Table ID"
+    Value: !Ref RouteTablePrivData2
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", RouteTablePrivData2]]
+
+  rtAppSubnet1:
+    Description: "First Private Application Subnet Route Table ID"
+    Value: !Ref RouteTablePriv1Layer1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", RouteTablePriv1Layer1]]
+
+  rtAppSubnet2:
+    Description: "Second Private Application Subnet Route Table ID"
+    Value: !Ref RouteTablePriv2Layer1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", RouteTablePriv2Layer1]]
+
+  rtPubSubnet1:
+    Description: "First Public Subnet Route Table ID"
+    Value: !Ref RouteTablePublic1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", RouteTablePublic1]]
+
+  rtPubSubnet2:
+    Description: "Second Public Subnet Route Table ID"
+    Value: !Ref RouteTablePublic2
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", RouteTablePublic2]]
+
+  #for other stacks to add nacl rules
+
+  naclDataSubnet1:
+    Description: "First Private Data Subnet NACL"
+    Value: !Ref NACLPrivateData1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", NACLPrivateData1]]
+
+  naclDataSubnet2:
+    Description: "Second Private Data Subnet NACL"
+    Value: !Ref NACLPrivateData2
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", NACLPrivateData2]]
+
+  naclAppSubnet1:
+    Description: "First Private Application Subnet NACL"
+    Value: !Ref NACLPriv1Layer1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", NACLPriv1Layer1]]
+
+
+  naclAppSubnet2:
+    Description: "Second Private Application Subnet NACL"
+    Value: !Ref NACLPriv2Layer1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", NACLPriv2Layer1]]
+
+  naclPubSubnet1:
+    Description: "First Public Subnet NACL"
+    Value: !Ref NACLPublic1
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", NACLPublic1]]
+
+  naclPubSubnet2:
+    Description: "Second Public Subnet NACL"
+    Value: !Ref NACLPublic2
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", NACLPublic2]]

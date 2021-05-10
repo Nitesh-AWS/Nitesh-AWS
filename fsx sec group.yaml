@@ -1,0 +1,564 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "Template has the capability to create a Windows FSx FileSystem inside a VPC joining self-managed Active Directory. Requires a service account and FSxAdministrators group be created before running the template."
+
+Parameters:
+
+  pFsxName:
+    Type: "String"
+    Description:  "Name for FSx Filesystem"
+    Default: "virbio-fsx-workspaces"
+
+  pVpcId:
+    Type: "AWS::EC2::VPC::Id"
+    Description: "The VPC where resources will be deployed"
+
+  pVpcCidr:
+    Type: "String"
+    Description: "Local VPC CIDR for Security Group Ingress"
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}|^$'
+    Default: "10.212.0.0/16"
+
+  pAdUsername:
+    Type: "String"
+    Description: "Username for the service account on your self-managed AD domain that Amazon FSx will use to join to your AD domain"
+    Default: "svc-fsx01"
+
+  pAdPassword:
+    Type: "String"
+    Description: "Password for the service account on your self-managed AD domain that Amazon FSx will use to join to your AD domain"
+    NoEcho: "true"
+
+  pEnableCloudwatchAlarms:
+    Type: String
+    Default: true
+    Description: "This will choose whether to create Cloudwatch alarms"
+    AllowedValues:
+      - true
+      - false
+
+  pFsxStorageType:
+    Type: "String"
+    Default: "SSD"
+    Description: "Sets the storage type for the Amazon FSx for Windows file system you're creating. HDD requires at least 2TB."
+    AllowedValues:
+      - "SSD"
+      - "HDD"
+
+  pFsxDeploymentType:
+    Type: "String"
+    Default: "SINGLE_AZ_2"
+    Description: >-
+      MULTI_AZ_1 - Deploys a high availability file system that is configured for Multi-AZ redundancy to tolerate temporary Availability Zone (AZ) unavailability. You can only deploy a Multi-AZ file system in AWS Regions that have a minimum of three Availability Zones. Also supports HDD storage type
+      SINGLE_AZ_1 - (Default) Choose to deploy a file system that is configured for single AZ redundancy.
+      SINGLE_AZ_2 - The latest generation Single AZ file system. Specifies a file system that is configured for single AZ redundancy and supports HDD storage type.
+    AllowedValues:
+      - "MULTI_AZ_1"
+      - "SINGLE_AZ_1"
+      - "SINGLE_AZ_2"
+
+  pStorageCapacity:
+    Type: "Number"
+    Description: "Min 32. Max 65536. The size of the file system in GiB"
+    MinValue: 32
+    MaxValue: 65536
+    Default: 1024
+
+  pThroughputCapacity:
+    Type: "Number"
+    Description: "Min 8. Max 2048. The throughput of an Amazon FSx file system, measured in megabytes per second."
+    MinValue: 8
+    MaxValue: 2048
+    Default: 16
+
+  pFsxBackupRetention:
+    Type: "String"
+    Default: "35"
+    Description: "Backups can be retained up to 35 days"
+
+  pFsxBackupWindow:
+    Type: "String"
+    Default: "05:00"
+    Description: "UTC - Adjust for requested time zone"
+
+  pFsxMaintenanceWindow:
+    Type: "String"
+    Default: "7:08:00"
+    Description: "Time to apply Windows Updates. Should be after backup window. UTC - Adjust for requested time zone"
+
+  pSNSAlerts:
+    Type: String
+    Description: "(Optional) ARN for an SNS Topic to notify on Cloudwatch Alarms"
+    Default: ""
+
+  pAWSAccountName:
+    Type: "String"
+    Default: "virbio-workspaces"
+    Description: "(Optional) Used in notification messages"
+
+  pMonitoringPlatform:
+    Type: "String"
+    Default: "none"
+    AllowedValues:
+      - "datadog"
+      - "cloudWatch"
+      - "none"
+
+  pTagOwner:
+    Type: "String"
+    Default: "virbio"
+    Description: "(Optional) Owner of the resources.  AWS Account Alias/Application/Environment/Person/Department,etc"
+
+  pPrivateSubnet1:
+    Type: "AWS::EC2::Subnet::Id"
+    Description: "Primary VPC subnet ID for FSx deployment"
+
+  pPrivateSubnet2:
+    Type: "AWS::EC2::Subnet::Id"
+    Description: "Secondary VPC subnet ID for FSx deployment. Only used when 'Multi-AZ' is enabled"
+
+  pKmsKeyId:
+    Type: "String"
+    Description:  "The KMS Key Id used to encrypt the storage. For example, 1de8cac5-d895-48e0-9c57-9816f7e848f0"
+    Default: "arn:aws:kms:us-west-2:133780878554:key/7ffcc6ef-3ec0-4546-98a3-bec8c7b8f77a"
+
+  pDCIpAddresses:
+    Type: CommaDelimitedList
+    Description: "IP Addresses of Domain Controllers. Separate entries with a comma."
+    Default: "10.210.2.228,10.210.3.98"
+
+  pTagEnvironment:
+    Type: "String"
+    Description: "Environment type for default resource tagging"
+    Default: "production"
+    AllowedValues:
+      - "production"
+      - "staging"
+      - "sandbox"
+      - "test"
+      - "development"
+      - "qa"
+    ConstraintDescription: "List of configured environments."
+
+  pBackupId:
+    Type: "String"
+    Description: "(Optional) The ID of the FSx backup to restore"
+    Default: ""
+
+  pDomainFQDN:
+    Type: String
+    Description: "Fully Qualified Domain Name of the Active Directory domain."
+    Default: "corp.vir.bio"
+
+  pFSxAdministrators:
+    Type: String
+    Description: "Name of the Active Directory Security Group who will have Administrative rights to the FSx filesystem"
+    Default: "WorkSpaces Admin Group"
+
+  pAdOuDn:
+    Type: "String"
+    Description: "Fully qualified distinguished name of the organizational unit within your self-managed AD directory that the Windows File Server instance will join. Example - OU=FSx,DC=yourdomain,DC=corp,DC=com"
+    Default: "OU=FSx,OU=AWS,OU=Resources,DC=corp,DC=vir,DC=bio"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Network"
+        Parameters:
+          - pVpcId
+          - pVpcCidr
+          - pFsxDeploymentType
+          - pPrivateSubnet1
+          - pPrivateSubnet2
+      - Label:
+          default: "FSx"
+        Parameters:
+          - pFsxName
+          - pTagEnvironment
+          - pStorageCapacity
+          - pThroughputCapacity
+          - pKmsKeyId
+          - pTagOwner
+          - pFsxMaintenanceWindow
+          - pFsxStorageType
+      - Label:
+          default: "Active Directory"
+        Parameters:
+          - pAdUsername
+          - pAdPassword
+          - pAdOuDn
+          - pDCIpAddresses
+          - pDomainFQDN
+          - pFSxAdministrators
+      - Label:
+          default: "Restoring from Backup"
+        Parameters:
+          - pBackupId
+      - Label:
+          default: "Monitoring"
+        Parameters:
+          - pMonitoringPlatform
+          - pEnableCloudwatchAlarms
+          - pSNSAlerts
+          - pAWSAccountName
+      - Label:
+          default: "Backups"
+        Parameters:
+          - pFsxBackupWindow
+          - pFsxBackupRetention
+
+    ParameterLabels:
+        pTagEnvironment:
+          default: "Environment Tag"
+        pVpcId:
+          default: "VPC Id"
+        pFsxName:
+          default: "File System Name"
+        pStorageCapacity:
+          default: "Size of the File System"
+        pThroughputCapacity:
+          default: "Throughput Requirements"
+        pKmsKeyId:
+          default: "KMS Key Id"
+        pTagOwner:
+          default: "Owner tag"
+        pAdUsername:
+          default: "Domain User"
+        pAdPassword:
+          default: "Domain User Password"
+        pDCIpAddresses:
+          default: "List of domain controller IPs"
+        pDomainFQDN:
+          default: "Fully Qualified Domain Name for active directory"
+        pFSxAdministrators:
+          default: "File System Administrative Users Group"
+        pAdOuDn:
+          default: "Active Directory OU containing the File System computer object"
+        pBackupId:
+          default: "Backup Id, if restoring file system from backup"
+        pMonitoringPlatform:
+          default: "Monitoring Platform"
+        pEnableCloudwatchAlarms:
+          default: "Enable Cloudwatch Alarms"
+        pSNSAlerts:
+          default: "SNS Alert"
+        pAWSAccountName:
+          default: "AWS Account Name for Alert messages"
+        pFsxBackupWindow:
+          default: Backup Window
+        pFsxBackupRetention:
+          default: Backup Retention
+        pFsxDeploymentType:
+          default: Single or Multi-AZ
+        pFsxMaintenanceWindow:
+          default: Maintenance Window
+        pFsxStorageType:
+          default: Storage Type
+        pVpcCidr:
+          default: VPC CIDR
+        pPrivateSubnet1:
+          default: Primary Private Subnet
+        pPrivateSubnet2:
+          default: Secondary Private Subnet
+
+Conditions:
+
+  CondCloudWatchMonitoring: !Equals ["CloudWatch", !Ref pMonitoringPlatform]
+  CondDatadogMonitoring: !Equals ["Datadog", !Ref pMonitoringPlatform]
+  CondEnableCloudwatchAlarms: !Equals [true, !Ref pEnableCloudwatchAlarms]
+  CondMultiAz: !Equals [MULTI_AZ_1, !Ref pFsxDeploymentType]
+  CondRestoreFromBackup: !Not [!Equals ["",!Ref pBackupId]]
+  CondSendAlerts: !Not [!Equals ["",!Ref pSNSAlerts]]
+
+
+Resources:
+
+  # Security Group
+
+  sgFsx:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Allows access to FSx File System"
+      VpcId: !Ref pVpcId
+      SecurityGroupIngress:
+        - IpProtocol: "-1"
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref pVpcCidr
+          Description: "Internal VPC access"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: "-1"
+          ToPort: "-1"
+          CidrIp: "10.210.2.228/32"
+          Description: "Central Networking DC1"
+        - IpProtocol: "-1"
+          FromPort: "-1"
+          ToPort: "-1"
+          CidrIp: "10.210.3.98/32"
+          Description: "Central Networking DC2"
+      Tags:
+        - Key: "Name"
+          Value: !Sub ${pFsxName}-SG-${AWS::StackName}
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+
+  # FSx File System
+
+  fsx:
+    Type: AWS::FSx::FileSystem
+    Properties:
+      BackupId: !If [CondRestoreFromBackup, !Ref pBackupId, !Ref "AWS::NoValue"]
+      FileSystemType: "WINDOWS"
+      KmsKeyId: !Ref pKmsKeyId
+      SecurityGroupIds:
+        - !Ref sgFsx
+      StorageCapacity: !Ref pStorageCapacity
+      StorageType: !Ref pFsxStorageType
+      SubnetIds:
+      - !Ref pPrivateSubnet1
+      - !If [CondMultiAz, !Ref pPrivateSubnet2, !Ref "AWS::NoValue"]
+      WindowsConfiguration:
+        AutomaticBackupRetentionDays: !Ref pFsxBackupRetention
+        CopyTagsToBackups: true
+        DeploymentType: !Ref pFsxDeploymentType
+        DailyAutomaticBackupStartTime: !Ref pFsxBackupWindow
+        PreferredSubnetId: !If [CondMultiAz, !Ref pPrivateSubnet1, !Ref "AWS::NoValue"]
+        ThroughputCapacity: !Ref pThroughputCapacity
+        SelfManagedActiveDirectoryConfiguration:
+            DnsIps: !Ref pDCIpAddresses
+            DomainName: !Ref pDomainFQDN
+            FileSystemAdministratorsGroup: !Ref pFSxAdministrators
+            OrganizationalUnitDistinguishedName: !Ref pAdOuDn
+            UserName: !Ref pAdUsername
+            Password: !Ref pAdPassword
+        WeeklyMaintenanceStartTime: !Ref pFsxMaintenanceWindow
+      Tags:
+        - Key: "Name"
+          Value: !Ref pFsxName
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+        - Key: "datadog"
+          Value: !If [ CondDatadogMonitoring, "yes", "no" ]
+        - Key: "cloudwatch-monitoring"
+          Value: !If [ CondCloudWatchMonitoring, "yes", "no" ]
+
+# Cloudwatch Alarms
+
+  #alarm when free space is less than 25%
+  alarmFreeSpace:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CondEnableCloudwatchAlarms
+    Properties:
+      AlarmActions:
+        # Add an SNS Topic if an ARN was provided
+        - !If [CondSendAlerts, !Ref pSNSAlerts, !Ref "AWS::NoValue"]
+      AlarmDescription: !Join [ "", ["FSx ", !Ref pAWSAccountName, " ", !Ref pFsxName, " (", !Ref fsx, ") - Low Disk Space"]]
+      AlarmName: !Join [ "", ["FSx ", !Ref pAWSAccountName, " ", !Ref pFsxName, " (", !Ref fsx, ") - Percentage of Free Space is Low"]]
+      ComparisonOperator: "LessThanThreshold"
+      Metrics:
+        - Expression: !Sub "m1 / (${pStorageCapacity} * 1024 )"
+          Id: e1
+          Label: "PercentageOfFreeSpace"
+        - Id: m1
+          MetricStat:
+            Metric:
+              MetricName: "FreeStorageCapacity"
+              Namespace: "AWS/FSx"
+              Dimensions:
+                - Name: "FileSystemId"
+                  Value: !Ref fsx
+            Period: 60
+            Stat: "Average"
+            Unit: "Bytes"
+          ReturnData: false
+      EvaluationPeriods: 5
+      Threshold: 0.25
+
+# Cloudwatch Dashboard
+
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Condition: CondEnableCloudwatchAlarms
+    Properties:
+      DashboardName: !Sub "fsx-${pFsxName}"
+      DashboardBody:
+        {"Fn::Join":["",['{
+              "widgets": [
+                  {
+                      "type": "text",
+                      "x": 15,
+                      "y": 0,
+                      "width": 9,
+                      "height": 6,
+                      "properties": {
+                          "markdown": "\n# Amazon FSx file system: ',!Ref 'fsx','\n## Region: ',!Ref 'AWS::Region','\n\nDashboard: [', !Join [ '_', [ !Ref 'AWS::Region', !Ref fsx ] ],'](#dashboards:name=', !Join [ '_', [ !Ref 'AWS::Region', !Ref fsx ] ],')\n\n![FSx_logo](https://s3.amazonaws.com/amazon-fsx/workshop/windows/resources/images/fsx-for-windows-file-server-icon.png)\n"
+                      }
+                  },
+                  {
+                      "type": "metric",
+                      "x": 0,
+                      "y": 6,
+                      "width": 15,
+                      "height": 9,
+                      "properties": {
+                          "metrics": [
+                              [ { "expression": "totaldatabytes/PERIOD(datareadbytes)", "label": "Total Data Throughput (B/s)", "id": "totaldatathroughput", "yAxis": "left", "color": "#2ca02c" } ],
+                              [ { "expression": "datawritebytes/PERIOD(datawritebytes)", "label": "Data Write Throughput (B/s)", "id": "datawritethroughput", "yAxis": "left", "color": "#1f77b4" } ],
+                              [ { "expression": "datareadbytes/PERIOD(datareadbytes)", "label": "Data Read Throughput (B/s)", "id": "datareadthroughput", "yAxis": "left", "color": "#ff7f0e" } ],
+                              [ { "expression": "datareadbytes+datawritebytes", "label": "TotalDataBytes", "id": "totaldatabytes", "visible": false } ],
+                              [ "AWS/FSx", "DataWriteBytes", "FileSystemId", "',!Ref 'fsx','", { "stat": "Sum", "id": "datawritebytes", "yAxis": "right", "visible": false } ],
+                              [ ".", "DataReadBytes", ".", ".", { "stat": "Sum", "id": "datareadbytes", "yAxis": "right", "visible": false } ]
+                          ],
+                          "view": "timeSeries",
+                          "stacked": false,
+                          "region": "',!Ref 'AWS::Region','",
+                          "period": 60,
+                          "title": "Throughput (Bytes per second)",
+                          "legend": {
+                              "position": "bottom"
+                          },
+                          "yAxis": {
+                              "left": {
+                                  "showUnits": true
+                              },
+                              "right": {
+                                  "showUnits": false
+                              }
+                          },
+                          "stat": "Average"
+                      }
+                  },
+                  {
+                    "type": "metric",
+                      "x": 15,
+                      "y": 6,
+                      "width": 9,
+                      "height": 9,
+                      "properties": {
+                          "metrics": [
+                              [ { "expression": "datawritebytes*100/(datawritebytes+datareadbytes)", "label": "Data Write (%)__", "id": "datawritepercent", "stat": "Sum", "color": "#1f77b4" } ],
+                              [ { "expression": "datareadbytes*100/(datawritebytes+datareadbytes)", "label": "Data Read (%)__", "id": "datareadpercent", "stat": "Sum", "color": "#ff7f0e" } ],
+                              [ "AWS/FSx", "DataWriteBytes", "FileSystemId", "',!Ref 'fsx','", { "id": "datawritebytes", "visible": false } ],
+                              [ ".", "DataReadBytes", ".", ".", { "id": "datareadbytes", "visible": false } ]
+                          ],
+                          "view": "timeSeries",
+                          "region": "',!Ref 'AWS::Region','",
+                          "stacked": false,
+                          "title": "Percent Throughput (%)",
+                          "period": 60,
+                          "legend": {
+                              "position": "bottom"
+                          },
+                          "stat": "Sum",
+                          "yAxis": {
+                              "left": {
+                                  "showUnits": false
+                              },
+                              "right": {
+                                  "showUnits": false
+                              }
+                          }
+                      }
+                  },
+                  {
+                      "type": "metric",
+                      "x": 0,
+                      "y": 15,
+                      "width": 15,
+                      "height": 9,
+                      "properties": {
+                          "metrics": [
+                              [ { "expression": "(datawriteoperations+datareadoperations+metadataoperations)/PERIOD(metadataoperations)", "label": "Total Operations per second", "id": "totalops", "yAxis": "left", "color": "#2ca02c" } ],
+                              [ { "expression": "(datawriteoperations)/PERIOD(datawriteoperations)", "label": "Data Write Operations per second", "id": "datawriteops", "yAxis": "left", "color": "#1f77b4" } ],
+                              [ { "expression": "(datareadoperations)/PERIOD(datareadoperations)", "label": "Data Read Operations per second", "id": "datareadops", "yAxis": "left", "color": "#ff7f0e" } ],
+                              [ { "expression": "(metadataoperations)/PERIOD(metadataoperations)", "label": "Metadata Operations per second", "id": "metadataops", "yAxis": "left", "color": "#d62728" } ],
+                              [ "AWS/FSx", "DataWriteOperations", "FileSystemId", "',!Ref 'fsx','", { "stat": "Sum", "id": "datawriteoperations", "visible": false } ],
+                              [ ".", "DataReadOperations", ".", ".", { "stat": "Sum", "id": "datareadoperations", "visible": false } ],
+                              [ ".", "MetadataOperations", ".", ".", { "stat": "Sum", "id": "metadataoperations", "visible": false } ]
+                          ],
+                          "view": "timeSeries",
+                          "stacked": false,
+                          "region": "',!Ref 'AWS::Region','",
+                          "period": 60,
+                          "title": "Operations per Second",
+                          "legend": {
+                              "position": "bottom"
+                          },
+                          "yAxis": {
+                              "left": {
+                                  "showUnits": false
+                              },
+                              "right": {
+                                  "showUnits": false
+                              }
+                          },
+                          "stat": "Average"
+                      }
+                  },
+                  {
+                      "type": "metric",
+                      "x": 15,
+                      "y": 15,
+                      "width": 9,
+                      "height": 9,
+                      "properties": {
+                          "metrics": [
+                              [ { "expression": "datawriteoperations*100/totaloperations", "label": "Data Write (%)__", "id": "percentdatawriteoperations", "color": "#1f77b4" } ],
+                              [ { "expression": "datareadoperations*100/totaloperations", "label": "Data Read (%)__", "id": "percentdatareadoperations", "color": "#ff7f0e" } ],
+                              [ { "expression": "metadataoperations*100/totaloperations", "label": "Metadata (%)__", "id": "percentmetadataoperations", "color": "#d62728" } ],
+                              [ { "expression": "datawriteoperations+datareadoperations+metadataoperations", "label": "TotalOperations", "id": "totaloperations", "visible": false } ],
+                              [ "AWS/FSx", "DataWriteOperations", "FileSystemId", "',!Ref 'fsx','", { "stat": "Sum", "id": "datawriteoperations", "visible": false } ],
+                              [ ".", "DataReadOperations", ".", ".", { "stat": "Sum", "id": "datareadoperations", "visible": false } ],
+                              [ ".", "MetadataOperations", ".", ".", { "stat": "Sum", "id": "metadataoperations", "visible": false } ]
+                          ],
+                          "view": "timeSeries",
+                          "region": "',!Ref 'AWS::Region','",
+                          "stacked": false,
+                          "title": "Percent Operations per Second (%)",
+                          "period": 60,
+                          "legend": {
+                              "position": "bottom"
+                          },
+                          "stat": "Average",
+                          "yAxis": {
+                              "left": {
+                                  "showUnits": false
+                              },
+                              "right": {
+                                  "showUnits": false
+                              }
+                          }
+                      }
+                  },
+                  {
+                      "type": "metric",
+                      "x": 0,
+                      "y": 0,
+                      "width": 15,
+                      "height": 6,
+                      "properties": {
+                          "view": "timeSeries",
+                          "stacked": false,
+                          "metrics": [
+                              [ "AWS/FSx", "FreeStorageCapacity", "FileSystemId", "',!Ref 'fsx','" ]
+                          ],
+                          "region": "',!Ref 'AWS::Region','",
+                          "title": "Free Storage Capacity (Bytes)"
+                      }
+                  }
+              ]
+          }
+        ']]}
+
+Outputs:
+
+  Version:
+    Description: Windows FSx
+    Value: "fsx-windows-1.2"
+    Export:
+      Name: !Join ["-", [!Ref "AWS::StackName", "fsx-windows"]]

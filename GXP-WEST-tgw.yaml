@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template for creating VPC Transit Gateway Attachment'
+
+Parameters:
+
+  VSFATTACH:
+    Description: San Francisco VPN Attachment
+    Type: String
+    Default: tgw-attach-08f9ea1b799ea2732
+
+  VPDXATTACH:
+    Description: Portland VPN Attachment
+    Type: String
+    Default: tgw-attach-0b3f92f7bb9f6c86e
+
+  VSTLATTACH:
+    Description: St Louis VPN Attachment
+    Type: String
+    Default: tgw-attach-0caeb220bbbc103e6
+
+  VBZATTACH:
+    Description: Bellenzona VPN Attachment
+    Type: String
+    Default: tgw-attach-04fba10c06188714f
+
+  INFRATTACH:
+    Description: Infrastructure VPC Attachment
+    Type: String
+    Default: tgw-attach-0b9a0c7e22754958c
+
+#UPDATE CHILD VPC NAME
+
+  VPCNAME:
+    Description: VPC Name
+    Type: String
+    Default: vir-gxp-us-west-2
+
+#UPDATE CHILD VPC ID
+
+  VPCID:
+    Description: VPC ID
+    Type: String
+    Default: vpc-0a4148e8778971467
+
+  LOCATION:
+    Description: AWS Region
+    Type: String
+    AllowedValues:
+      - USW2
+      - USE1
+      - EUC1
+
+
+  INFRASTRUCTURERTB:
+    Description: Infrastructure VPC Route Table
+    Type: String
+    Default: tgw-rtb-0899b05f8732a71e2
+
+
+  ONPREMRTB:
+    Description: Default Route Table
+    Type: String
+    Default: tgw-rtb-06fb1a0a41edb79a2
+
+  PVTSUBNET1:
+    Description: Private Subnet ID in AZ1
+    Type: String
+    Default: subnet-0b1adf5019e2593f2
+
+  PVTSUBNET2:
+    Description: Private Subnet ID in AZ2
+    Type: String
+    Default: subnet-04f20424f2984d713
+
+  TGWID:
+    Description:  Transit Gateway ID (USW2-TGW-0636048e0a4a4d640 / USE1-TGW-0f420529ad2f44f8b)
+    Type: String
+    AllowedValues:
+      - tgw-0636048e0a4a4d640
+      - tgw-0f420529ad2f44f8b
+
+Resources:
+  VIRGXPWESTATTACH:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      TransitGatewayId: !Ref "TGWID"
+      VpcId: !Ref "VPCID"
+      SubnetIds:
+        - !Ref "PVTSUBNET1"
+        - !Ref "PVTSUBNET2"
+
+      Tags:
+        - Key: Name
+          Value: !Ref "VPCNAME"
+
+  VIRGXPWESTRTB:
+    Type: "AWS::EC2::TransitGatewayRouteTable"
+    Properties:
+      TransitGatewayId: !Ref "TGWID"
+      Tags:
+        - Key: Name
+          Value: !Ref "VPCNAME"
+
+  VIRGXPWESTRTBASSOCIATION:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    DependsOn: VIRGXPWESTRTB
+    Properties:
+      TransitGatewayAttachmentId: !Ref "VIRGXPWESTATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRGXPWESTRTB"
+
+  VIRGXPWESTRTBPROPAGATIONVSF:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "VSFATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRGXPWESTRTB"
+
+  VIRGXPWESTRTBPROPAGATIONPDX:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "VPDXATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRGXPWESTRTB"
+
+  VIRGXPWESTRTBPROPAGATIONSTL:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "VSTLATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRGXPWESTRTB"
+
+  VIRGXPWESTRTBPROPAGATIONBZ:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "VBZATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRGXPWESTRTB"
+
+  VIRGXPWESTRTBPROPAGATIONINFR:
+   Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+   Properties:
+     TransitGatewayAttachmentId: !Ref "INFRATTACH"
+     TransitGatewayRouteTableId: !Ref "VIRGXPWESTRTB"
+
+  ONPREMRTBPROPAGATION:
+   Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+   Properties:
+     TransitGatewayAttachmentId: !Ref "VIRGXPWESTATTACH"
+     TransitGatewayRouteTableId: !Ref "ONPREMRTB"
+
+  INFRASTRUCTURERTBPROPAGATION:
+   Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+   DependsOn: VIRGXPWESTATTACH
+   Properties:
+     TransitGatewayAttachmentId: !Ref "VIRGXPWESTATTACH"
+     TransitGatewayRouteTableId: !Ref "INFRASTRUCTURERTB"

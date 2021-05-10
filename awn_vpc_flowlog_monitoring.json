@@ -1,0 +1,48 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Arctic Wolf Networks: Configure VPC flow log collection through CloudWatch Logs",
+    "Metadata": {
+        "AWS::CloudFormation::Interface": {
+            "ParameterGroups": [
+                {
+                    "Label": {
+                        "default": "VPC Flow Logs"
+                    },
+                    "Parameters": [
+                        "vpcId"
+                    ]
+                }
+            ]
+        }
+    },
+    "Parameters": {
+        "vpcId": {
+            "Description": "VPC identifier that should have VPC flow logs enabled (eg: vpc-12345678). This VPC must exist in your AWS account.",
+            "Type": "AWS::EC2::VPC::Id"
+        }
+    },
+    "Resources": {
+        "AWNEC2FlowLog": {
+            "Properties": {
+                "DeliverLogsPermissionArn": {
+                    "Fn::ImportValue": "AWNVPCFlowLogsRole"
+                },
+                "LogGroupName": {
+                    "Fn::Join": [
+                        "/",
+                        [
+                            "/AWN",
+                            "VPCFlowLogs"
+                        ]
+                    ]
+                },
+                "ResourceId": {
+                    "Ref": "vpcId"
+                },
+                "ResourceType": "VPC",
+                "TrafficType": "ALL"
+            },
+            "Type": "AWS::EC2::FlowLog"
+        }
+    }
+}

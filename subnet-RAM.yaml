@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template for sharing subnet with another account'
+
+Parameters:
+
+  Location:
+    Description: Aws Region
+    Type: String
+    AllowedValues:
+      - USW2
+      - USE1
+      - EUC1
+
+Resources:
+  SUBNETResourceShare:
+    Type: "AWS::RAM::ResourceShare"
+    Properties:
+      Name: !Sub "${Location} Subnet Share"
+      AllowExternalPrincipals: False
+      ResourceArns:
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-0e349e353419fd1bf
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-0c8c8a69edb6b31d8
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-0c708a02d52611c5b
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-09e003984ed912f76
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-0996fd2eaf2bfd28e
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-0970dec105d877011
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-089b6064716650d2d
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-07d776f872bf4195b
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-07224dfacf23b41fb
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-049d1284b8ceb4687
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-04727efd3d2b3e4cd
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-0336e10201c543a23
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-01cf748420f70af62
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-01a8487b14e63dc6d
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-01a4e95b10e008470
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-0187260831e4b5e22
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-00df33028326ea354
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-00c3407d9913ac135
+        - arn:aws:ec2:us-east-1:845002772821:subnet/subnet-0079e5b685ef4ace6
+      Principals:
+        - arn:aws:organizations::131006943874:ou/o-ylqi7iaemj/ou-k26i-33ri5li1
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${Location}-SHAREDSUBNET"

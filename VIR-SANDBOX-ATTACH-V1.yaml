@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template for creating VPC Transit Gateway Attachment'
+
+Parameters:
+
+  VSFATTACH:
+    Description: San Francisco VPN Attachment
+    Type: String
+    Default: tgw-attach-08f9ea1b799ea2732
+
+  VPDXATTACH:
+    Description: Portland VPN Attachment
+    Type: String
+    Default: tgw-attach-0b3f92f7bb9f6c86e
+
+  VSTLATTACH:
+    Description: St Louis VPN Attachment
+    Type: String
+    Default: tgw-attach-0caeb220bbbc103e6
+
+  VBZATTACH:
+    Description: Bellenzona VPN Attachment
+    Type: String
+    Default: tgw-attach-04fba10c06188714f
+
+#UPDATE CHILD VPC NAME
+
+  VPCNAME:
+    Description: VPC Name
+    Type: String
+    Default: VIR-SERVICES
+
+#UPDATE CHILD VPC ID
+
+  VPCID:
+    Description: VPC ID
+    Type: String
+    Default: vpc-00b202d8bdfc0e74c
+
+  LOCATION:
+    Description: AWS Region
+    Type: String
+    AllowedValues:
+      - USW2
+      - USE1
+      - EUC1
+
+  ONPREMRTB:
+    Description: Default Route Table
+    Type: String
+    Default: tgw-rtb-06fb1a0a41edb79a2
+
+  PUBSUBNET1:
+    Description: Public Subnet ID in AZ1
+    Type: String
+    Default: subnet-0c8817abcd9617614
+
+  PUBSUBNET2:
+    Description: Public Subnet ID in AZ2
+    Type: String
+    Default: subnet-07320f50cee8ce848
+
+  PVTSUBNET1:
+    Description: Private Subnet ID in AZ1
+    Type: String
+    Default: subnet-0bb3e52fa2bd37f4c
+
+  PVTSUBNET2:
+    Description: Private Subnet ID in AZ2
+    Type: String
+    Default: subnet-064611f6bbac07e84
+
+  DATASUBNET1:
+    Description: Data Subnet ID in AZ1
+    Type: String
+    Default: subnet-0b2bc696c541d7840
+
+  DATASUBNET2:
+    Description: Data Subnet ID in AZ2
+    Type: String
+    Default: subnet-05952b779c7d69546
+
+  TGWID:
+    Description:  Transit Gateway ID (USW2-TGW-0636048e0a4a4d640 / USE1-TGW-0f420529ad2f44f8b)
+    Type: String
+    AllowedValues:
+      - tgw-0636048e0a4a4d640
+      - tgw-0f420529ad2f44f8b
+
+  VIRSERVICESATTACH:
+    Description: Vir Services TGW attachment
+    Type: String
+    Default: tgw-attach-097592de9616d6194
+
+Resources:
+  VIRSERVICESATTACH:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      TransitGatewayId: !Ref "TGWID"
+      VpcId: !Ref "VPCID"
+      SubnetIds:
+        - !Ref "PUBSUBNET1"
+        - !Ref "PUBSUBNET2"
+        - !Ref "PVTSUBNET1"
+        - !Ref "PVTSUBNET2"
+        - !Ref "DATASUBNET1"
+        - !Ref "DATASUBNET2"
+      Tags:
+        - Key: Name
+          Value: !Ref "VPCNAME"
+
+  #VIRSERVICESRTB:
+    #Type: "AWS::EC2::TransitGatewayRouteTable"
+    #Properties:
+      #TransitGatewayId: !Ref "TGWID"
+      #Tags:
+        #- Key: Name
+          #Value: !Ref "VPCNAME"
+
+  #VIRSERVICESRTBASSOCIATION:
+    #Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    #DependsOn: VIRSERVICESRTB
+    #Properties:
+      #TransitGatewayAttachmentId: !Ref "VIRSERVICESATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+
+  VIRSERVCESRTBPROPAGATIONVSF:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "VSFATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+
+  VIRSERVICESRTBPROPAGATIONPDX:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "VPDXATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+
+  VIRSERVICESRTBPROPAGATIONSTL:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "VSTLATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+
+  VIRSERVICESRTBPROPAGATIONBZ:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "VBZATTACH"
+      TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+
+  # ONPREMRTBPROPAGATION:
+  #   Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+  #   Properties:
+  #     TransitGatewayAttachmentId: !Ref "VIRSERVICESATTACH"
+  #     TransitGatewayRouteTableId: !Ref "ONPREMRTB"

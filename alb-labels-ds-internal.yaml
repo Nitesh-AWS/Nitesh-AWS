@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Internal ALB - HTTP with Optional HTTPS.  Optional end to end SSL"
+
+
+Parameters:
+
+  pS3createLogBucket:
+    Type: "String"
+    Description: "This bucket must exist even if not in use."
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pS3LogBucket:
+    Type: "String"
+    Description: "Target Bucket for Load Balancer logs."
+
+  pS3LogBucketLifeCycleDays:
+    Type: "Number"
+    Description: "Days to retain logs in S3"
+    MinValue: "1"
+    MaxValue: "365"
+    Default: "30"
+
+  pAlbName:
+    Type: "String"
+    Description: "Name will be part of DNS name."
+
+  pWebSubnet1:
+    Type: "AWS::EC2::Subnet::Id"
+    Description: "Private Web/App Subnet ID in AZ1"
+
+  pWebSubnet2:
+    Type: "AWS::EC2::Subnet::Id"
+    Description: "Private Web/App Subnet ID in AZ2"
+
+  pEnableAlbHttpsListener:
+    Type: "String"
+    Description: "Create ALB HTTPS Listener and Rules"
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+
+  pHostname2:
+    Type: "String"
+    Description: "REQUIRED - Host 2 based route added to both 80 and 443 ALB listeners."
+
+  pAlbCert:
+    Type: "String"
+    Description: "ARN of the ACM certificate"
+
+
+Mappings:
+
+  # http://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-access-logs.html#access-logging-bucket-permissions
+  RegionMap:
+    us-east-1:
+      LbAccountId: "127311923021"   # US East (N. Virginia)
+    us-east-2:
+      LbAccountId: "033677994240"   # US East (Ohio)
+    us-west-1:
+      LbAccountId: "027434742980"   # US West (N. California)
+    us-west-2:
+      LbAccountId: "797873946194"   # US West (Oregon)
+    ca-central-1:
+      LbAccountId: "985666609251"   # Canada (Central)
+    eu-central-1:
+      LbAccountId: "054676820928"   # EU (Frankfurt)
+    eu-west-1:
+      LbAccountId: "156460612806"   # EU (Ireland)
+    eu-west-2:
+      LbAccountId: "652711504416"   # EU (London)
+    eu-west-3:
+      LbAccountId: "009996457667"   # EU (Paris)
+    ap-northeast-1:
+      LbAccountId: "582318560864"   # Asia Pacific (Tokyo)
+    ap-northeast-2:
+      LbAccountId: "600734575887"   # Asia Pacific (Seoul)
+    ap-northeast-3:
+      LbAccountId: "383597477331"   # Asia Pacific (Osaka-Local)
+    ap-southeast-1:
+      LbAccountId: "114774131450"   # Asia Pacific (Singapore)
+    ap-southeast-2:
+      LbAccountId: "783225319266"   # Asia Pacific (Sydney)
+    ap-south-1:
+      LbAccountId: "718504428378"   # Asia Pacific (Mumbai)
+    sa-east-1:
+      LbAccountId: "507241528517"   # South America (Sao Paulo)
+
+
+Conditions:
+
+  Conds3CreateLogBucket: !Equals ["true", !Ref pS3createLogBucket]
+  CondCreateAlbHttpsListener: !Equals ["true", !Ref pEnableAlbHttpsListener]
+
+
+Resources:
+
+  s3bucketAlb:
+    Type: "AWS::S3::Bucket"
+    Condition: "Conds3CreateLogBucket"
+    Properties:
+      BucketName: !Ref pS3LogBucket
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+      LifecycleConfiguration:           # http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-lifecycleconfig.html
+        Rules:
+        - Id: !Join [" ", ["Expire in ", !Ref pS3LogBucketLifeCycleDays, "days"]]
+          Status: "Enabled"
+          ExpirationInDays: !Ref pS3LogBucketLifeCycleDays
+      Tags:
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: "Production"
+        - Key: "owner"
+          Value: "VirBio"
+
+  s3bucketPolicyAlb:
+    Type: "AWS::S3::BucketPolicy"
+    Condition: "Conds3CreateLogBucket"
+    Properties:
+      Bucket: !Ref s3bucketAlb
+      PolicyDocument:
+        Statement:
+          - Action:
+              - "s3:PutObject"
+            Effect: "Allow"
+            Resource:
+              - !Join ["", ["arn:aws:s3:::", !Ref s3bucketAlb, "/*"]]
+            Principal:
+              AWS: !FindInMap [RegionMap, !Ref "AWS::Region", LbAccountId]
+
+  alb:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    DependsOn: "s3bucketAlb"
+    Properties:
+      Name: !Ref pAlbName
+      LoadBalancerAttributes:
+        - Key:  "idle_timeout.timeout_seconds"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_LoadBalancerAttribute.html
+          Value: "600"
+        - Key: "deletion_protection.enabled"
+          Value: "true"
+        - Key: "access_logs.s3.enabled"
+          Value: "true"
+        - Key: "access_logs.s3.bucket"
+          Value: !Ref pS3LogBucket
+        - Key: "access_logs.s3.prefix"
+          Value: !Ref pAlbName
+      Scheme: internal
+      SecurityGroups:
+        - sg-034ea143b42f75f35
+      Subnets:
+        - !Ref pWebSubnet1
+        - !Ref pWebSubnet2
+      Tags:
+        - Key: "Name"
+          Value: !Ref pAlbName
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: "Production"
+        - Key: "owner"
+          Value: "VirBio"
+
+  albListener443:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref pAlbCert
+      DefaultActions:
+        - Type: "forward"
+          TargetGroupArn: "arn:aws:elasticloadbalancing:us-west-2:656985291222:targetgroup/labels-prod-443/d6c89d5ab394ca8e"
+      LoadBalancerArn: !Ref alb
+      Port: '443'
+      Protocol: "HTTPS"
+
+  albListener80:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Host: '#{host}'
+            Query: '#{query}'
+            Path: '/#{path}'
+            Port: '443'
+            StatusCode: HTTP_301
+      LoadBalancerArn: !Ref alb
+      Port: "80"
+      Protocol: "HTTP"
+
+
+  albRuleHttpSHost2:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: "arn:aws:elasticloadbalancing:us-west-2:656985291222:targetgroup/labels-prod-443/d6c89d5ab394ca8e"
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname2
+      ListenerArn: !Ref albListener443
+      Priority: "100"

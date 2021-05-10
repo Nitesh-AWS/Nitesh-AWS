@@ -1,0 +1,131 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Internal ALB - HTTP with Optional HTTPS.  Optional end to end SSL"
+
+
+Parameters:
+
+
+  pVpcId:
+    Type: "AWS::EC2::VPC::Id"
+    Description: "VPC ID"
+
+  pHealthCheckPathHttp:
+    Type: "String"
+    Description: "For the port 80 listener only"
+    Default: "/"
+
+  pHealthCheckCodesHttp:
+    Type: "String"
+    Description: "Examples: 200, multiple with 200,302 or a range with 200-299"
+    Default: "200,302"
+
+  pHealthCheckCodesHttpS:
+    Type: "String"
+    Description: "Optional - 443 only. Examples: 200, multiple with 200,302 or a range with 200-299"
+    Default: "200,302,403"
+
+  pHealthCheckPathHttpS:
+    Type: "String"
+    Description: "For the optional port 443 listener only"
+    Default: "/"
+
+
+  pEc2Targetinstance2:
+    Type: "String"
+    Description: "Instance ID of the second ALB target"
+
+
+
+  pAlbSslEndToEnd:
+    Type: "String"
+    Description: "False will enable HTTPS->HTTP.  If true HTTPS -> HTTPS target group."
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+
+Mappings:
+
+  # http://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-access-logs.html#access-logging-bucket-permissions
+  RegionMap:
+    us-east-1:
+      LbAccountId: "127311923021"   # US East (N. Virginia)
+    us-east-2:
+      LbAccountId: "033677994240"   # US East (Ohio)
+    us-west-1:
+      LbAccountId: "027434742980"   # US West (N. California)
+    us-west-2:
+      LbAccountId: "797873946194"   # US West (Oregon)
+    ca-central-1:
+      LbAccountId: "985666609251"   # Canada (Central)
+    eu-central-1:
+      LbAccountId: "054676820928"   # EU (Frankfurt)
+    eu-west-1:
+      LbAccountId: "156460612806"   # EU (Ireland)
+    eu-west-2:
+      LbAccountId: "652711504416"   # EU (London)
+    eu-west-3:
+      LbAccountId: "009996457667"   # EU (Paris)
+    ap-northeast-1:
+      LbAccountId: "582318560864"   # Asia Pacific (Tokyo)
+    ap-northeast-2:
+      LbAccountId: "600734575887"   # Asia Pacific (Seoul)
+    ap-northeast-3:
+      LbAccountId: "383597477331"   # Asia Pacific (Osaka-Local)
+    ap-southeast-1:
+      LbAccountId: "114774131450"   # Asia Pacific (Singapore)
+    ap-southeast-2:
+      LbAccountId: "783225319266"   # Asia Pacific (Sydney)
+    ap-south-1:
+      LbAccountId: "718504428378"   # Asia Pacific (Mumbai)
+    sa-east-1:
+      LbAccountId: "507241528517"   # South America (Sao Paulo)
+
+
+Conditions:
+
+  CondAlbSslEndToEnd: !Equals ["true", !Ref pAlbSslEndToEnd]
+
+
+
+Resources:
+
+
+  targetGroup443Host2:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttpS     # Multiple with "200,302" or a range "200-299"
+      Name: "labels-prod-443"
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: "labels-prod-443"
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: "Prod"
+        - Key: "owner"
+          Value: "VirBio"
+      Targets:
+        - Id: !Ref pEc2Targetinstance2
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: "300"
+        - Key: "stickiness.enabled"
+          Value: "false"
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: "86400"
+      VpcId: !Ref pVpcId

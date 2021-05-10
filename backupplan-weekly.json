@@ -1,0 +1,572 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  AWS Backup and DLM Template. This creates a single Backup Vault and schedule for all supported services.
+  Use other template and tag for transitioning EFS to cold storage.
+  Tag backup targets with backup=<TargetBackupTagValue> or ec2 instances with dlm=<TargetBackupTagValue> to have them backed up.
+  Scheduling and Retention values are customizable via extending the template map.
+  This template can be run multiple times for backup segregation and separate schedules.
+  Refer to the readme.md for more details.
+
+Parameters:
+
+  pSNSNotifications:
+    Type: String
+    Default: "false"
+    Description: "Notify on backup failures?"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pNotifyEmail:
+    Type: String
+    Default: "aws_alerts@privoit.com"
+    Description: "Email address to contact on failures"
+
+  pBackupMapKey:
+    Type: "String"
+    Description: "Picks backup settings to use from the template's mapping"
+    Default: "VIR-weekly"
+    AllowedValues:
+      - "default"
+      - "year"
+      - "month"
+      - "week"
+      - "financial"
+      - "VIR-weekly"
+Metadata:
+  AWS::CloudFormation::Interface:
+      ParameterGroups:
+        - Label:
+            default: "Global Backup Settings"
+          Parameters:
+              - pBackupMapKey
+        - Label:
+            default: "Notification Settings"
+          Parameters:
+              - pNotifyEmail
+              - pSNSNotifications
+      ParameterLabels:
+        pBackupMapKey:
+          default: "Backup Configuration"
+        pSNSNotifications:
+          default: "Subscribe for notifications"
+        pNotifyEmail:
+          default: "Email address to receive notifications"
+
+
+Mappings:
+
+  backups:
+    default:
+      CompletionWindowMinutes: 480
+      DailyCron: "cron(0 1 * * ? *)"
+      DailyRetentionDays: 7
+      DlmEbsBackupTime: "01:00"
+      DlmEbsRetention: 30
+      MonthlyCron: cron(0 1 1 * ? *)
+      MonthlyRetentionDays: 365
+      StartWindowMinutes: 60
+      TargetBackupTagValue: "yes"
+      WeeklyCron: cron(0 1 ? * SUN *)
+      WeeklyRetentionDays: 90
+    year:
+      CompletionWindowMinutes: 480
+      DailyCron: "cron(0 1 * * ? *)"
+      DailyRetentionDays: 7
+      DlmEbsBackupTime: "01:00"
+      DlmEbsRetention: 30
+      MonthlyCron: cron(0 1 1 * ? *)
+      MonthlyRetentionDays: 365
+      StartWindowMinutes: 60
+      TargetBackupTagValue: "year"
+      WeeklyCron: cron(0 1 ? * SUN *)
+      WeeklyRetentionDays: 90
+    month:
+      CompletionWindowMinutes: 480
+      DailyCron: "cron(0 1 * * ? *)"
+      DailyRetentionDays: 7
+      DlmEbsBackupTime: "01:00"
+      DlmEbsRetention: 30
+      MonthlyCron: cron(0 1 1 * ? *)
+      MonthlyRetentionDays: 60
+      StartWindowMinutes: 60
+      TargetBackupTagValue: "month"
+      WeeklyCron: cron(0 1 ? * SUN *)
+      WeeklyRetentionDays: 30
+    week:
+      CompletionWindowMinutes: 480
+      DailyCron: "cron(0 1 * * ? *)"
+      DailyRetentionDays: 7
+      DlmEbsBackupTime: "01:00"
+      DlmEbsRetention: 7
+      MonthlyCron: cron(0 1 1 * ? *)
+      MonthlyRetentionDays: 1
+      StartWindowMinutes: 60
+      TargetBackupTagValue: "week"
+      WeeklyCron: cron(0 1 ? * SUN *)
+      WeeklyRetentionDays: 1
+    financial:
+      CompletionWindowMinutes: 480
+      DailyCron: "cron(0 1 * * ? *)"
+      DailyRetentionDays: 7
+      DlmEbsBackupTime: "01:00"
+      DlmEbsRetention: 30
+      MonthlyCron: cron(0 1 1 * ? *)
+      MonthlyRetentionDays: 2555
+      StartWindowMinutes: 60
+      TargetBackupTagValue: "financial"
+      WeeklyCron: cron(0 1 ? * SUN *)
+      WeeklyRetentionDays: 365
+
+    VIR:
+      CompletionWindowMinutes: 480
+      DailyCron: "cron(30 5 * * ? *)"
+      DailyRetentionDays: 7
+      DlmEbsBackupTime: "01:00"
+      DlmEbsRetention: 7
+      MonthlyCron: cron(0 1 1 * ? *)
+      MonthlyRetentionDays: 1
+      StartWindowMinutes: 60
+      TargetBackupTagValue: "weekly"
+      WeeklyCron: cron(0 1 ? * SUN *)
+      WeeklyRetentionDays: 1
+
+
+
+
+    VIR-monthly:
+      CompletionWindowMinutes: 480
+      DailyCron: "cron(0 1 * * ? *)"
+      DailyRetentionDays: 7
+      DlmEbsBackupTime: "01:00"
+      DlmEbsRetention: 30
+      MonthlyCron: cron(30 5 1 * ? *)
+      MonthlyRetentionDays: 60
+      StartWindowMinutes: 60
+      TargetBackupTagValue: "monthly"
+      WeeklyCron: cron(0 1 ? * SUN *)
+      WeeklyRetentionDays: 30
+
+
+
+    VIR-weekly:
+      CompletionWindowMinutes: 480
+      DailyCron: "cron(0 1 * * ? *)"
+      DailyRetentionDays: 7
+      DlmEbsBackupTime: "01:00"
+      DlmEbsRetention: 30
+      MonthlyCron: cron(30 5 1 * ? *)
+      MonthlyRetentionDays: 365
+      StartWindowMinutes: 60
+      TargetBackupTagValue: "weekly"
+      WeeklyCron: cron(30 5 ? * SUN *)
+      WeeklyRetentionDays: 30
+
+
+
+
+
+Conditions:
+
+  CondNotify: !Equals [ !Ref pSNSNotifications, "true" ]
+
+
+Resources:
+
+  vaultBackupVault:
+    Type: "AWS::Backup::BackupVault"
+    DeletionPolicy: "Retain"
+    UpdateReplacePolicy: "Retain"
+    Properties:
+      BackupVaultName: !Sub "${AWS::StackName}"
+      EncryptionKeyArn: "arn:aws:kms:us-west-2:845002772821:key/7f15ec04-3c73-4961-a67e-27e38d355a97"
+        
+
+  iamBackupRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "backup.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup"
+
+  # EBS Backup Settings
+  planBackup:
+    Type: "AWS::Backup::BackupPlan"
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "${AWS::StackName}-BackupPlan"
+        BackupPlanRule:
+          - RuleName: "WeeklyBackups"
+            TargetBackupVault: !Ref vaultBackupVault
+            ScheduleExpression: !FindInMap ["backups", !Ref pBackupMapKey, "WeeklyCron" ]
+            CompletionWindowMinutes: !FindInMap ["backups", !Ref pBackupMapKey, "CompletionWindowMinutes" ]
+            StartWindowMinutes: !FindInMap ["backups", !Ref pBackupMapKey, "StartWindowMinutes" ]
+            Lifecycle:
+              DeleteAfterDays: !FindInMap ["backups", !Ref pBackupMapKey, "WeeklyRetentionDays" ]
+          - RuleName: "MonthlyBackups"
+            TargetBackupVault: !Ref vaultBackupVault
+            ScheduleExpression: !FindInMap ["backups", !Ref pBackupMapKey, "MonthlyCron" ]
+            CompletionWindowMinutes: !FindInMap ["backups", !Ref pBackupMapKey, "CompletionWindowMinutes" ]
+            StartWindowMinutes: !FindInMap ["backups", !Ref pBackupMapKey, "StartWindowMinutes" ]
+            Lifecycle:
+              DeleteAfterDays: !FindInMap ["backups", !Ref pBackupMapKey, "MonthlyRetentionDays" ]
+
+  backupSelectResource:
+    Type: "AWS::Backup::BackupSelection"
+    Properties:
+      BackupSelection:
+        SelectionName: !Sub "${AWS::StackName}"
+        IamRoleArn: !GetAtt iamBackupRole.Arn
+        ListOfTags:
+          - ConditionType: "STRINGEQUALS"
+            ConditionKey: "backup"
+            ConditionValue: !FindInMap ["backups", !Ref pBackupMapKey, "TargetBackupTagValue" ]
+      BackupPlanId: !Ref planBackup
+
+  # DLM
+  DLMBackupWorkerRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-dlm-backup-worker"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "dlm.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+
+  DLMBackupWorkerPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      Roles:
+        - !Ref DLMBackupWorkerRole
+      PolicyName: !Sub "${AWS::StackName}-dlm-backup"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - "iam:GetRole"
+              - "iam:GetUser"
+              - "iam:ListRoles"
+              - "iam:PassRole"
+            Resource: "*"
+          - Effect: "Allow"
+            Action: "dlm:*"
+            Resource: "*"
+          - Effect: "Allow"
+            Action:
+              - "ec2:CreateSnapshot"
+              - "ec2:CreateSnapshots"
+              - "ec2:CreateTags"
+              - "ec2:DeleteSnapshot"
+              - "ec2:DescribeInstances"
+              - "ec2:DescribeSnapshots"
+              - "ec2:DescribeVolumes"
+              - "ec2:ModifySnapshotAttribute"
+              - "ec2:ResetSnapshotAttribute"
+            Resource: "*"
+          - Effect: "Allow"
+            Action: "logs:*"
+            Resource: "arn:aws:logs:*:*:*"
+
+  DLMLifecyclePolicy:
+    Type: "AWS::DLM::LifecyclePolicy"
+    Properties:
+      Description: "Lifecycle Policy using CloudFormation"
+      State: "ENABLED"
+      ExecutionRoleArn: !GetAtt DLMBackupWorkerRole.Arn
+      PolicyDetails:
+        ResourceTypes:
+          - "INSTANCE"
+        TargetTags:
+          - Key: "dlm"
+            Value: !FindInMap ["backups", !Ref pBackupMapKey, "TargetBackupTagValue" ]
+        Schedules:
+          - Name: "Daily DLM EBS Snapshot Backup"
+            TagsToAdd:
+              - Key: "type"
+                Value: "dlm-ebs-snapshot-backup"
+            CreateRule:
+              Interval: 24
+              IntervalUnit: "HOURS"
+              Times:
+                - !FindInMap ["backups", !Ref pBackupMapKey, "DlmEbsBackupTime" ]
+            RetainRule:
+              Count: !FindInMap ["backups", !Ref pBackupMapKey, "DlmEbsRetention" ]
+            CopyTags: true
+
+  DLMBackupSNSTopic:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-dlm-backup-alerts"
+
+  DLMSNSSubscription:
+    Condition: CondNotify
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref pNotifyEmail
+      Protocol: email
+      TopicArn: !Ref DLMBackupSNSTopic
+
+
+  DLMBackupEventsRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Description: "DLM EBS Snapshot Backup Error"
+      Name: !Sub "${AWS::StackName}-dlm-error"
+      EventPattern:
+        source:
+          - "aws.dlm"
+        detail-type:
+          - "DLM Policy State Change"
+        detail:
+          state:
+            - "ERROR"
+      State: "ENABLED"
+      Targets:
+        - Arn: !Ref DLMBackupSNSTopic
+          Id: "1"
+
+## Lambda resources for cleaning up expired backups
+
+  backupCleanupRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Description: "Daily expired recovery point cleanup"
+      Name: !Sub "${AWS::StackName}-expired-recovery-point-cleanup"
+      ScheduleExpression: "cron(30 7 * * ? *)"
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt backupCleanupLambda.Arn
+          Id: "1"
+
+  backupCleanupPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt backupCleanupRule.Arn
+      FunctionName: !Ref backupCleanupLambda
+
+  backupCleanupLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import logging
+          import os
+
+          backupvault=os.environ['BACKUP_VAULT_NAME']
+
+          #setup simple logging for INFO
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          #define the connection
+          backup = boto3.client("backup")
+
+          def lambda_handler_remove_expired(event, context):
+            recoverypoints = backup.list_recovery_points_by_backup_vault(BackupVaultName=backupvault)
+
+            logger.info("Checking Recover points in vault: " + backupvault)
+            for recoverypoint in recoverypoints["RecoveryPoints"]:
+                if recoverypoint["Status"] == "EXPIRED":
+                    logger.info("Deleting expired recovery point: " + recoverypoint["RecoveryPointArn"])
+                    result = backup.delete_recovery_point(BackupVaultName=backupvault,RecoveryPointArn=recoverypoint["RecoveryPointArn"])
+      Description: "Removes Expired AWS Backup Recovery Points"
+      FunctionName: !Sub "${AWS::StackName}-backup-cleanup"
+      Handler: "index.lambda_handler_remove_expired"
+      Role: !GetAtt backupCleanupRole.Arn
+      Runtime: "python3.7"
+      Timeout: 300
+      Environment:
+        Variables:
+          BACKUP_VAULT_NAME: !Sub "${AWS::StackName}"
+      Tags:
+        - Key: "managed-by"
+          Value: "cloudformation"
+
+
+  backupRemoveAllRecoverPointsLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import logging
+
+          #setup simple logging for INFO
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          #define the connection
+          backup = boto3.client("backup")
+
+
+          def lambda_handler_remove_all(event, context):
+
+              # List Backup Vaults
+              backupvaults = backup.list_backup_vaults()
+
+              logger.info(backupvaults)
+
+              backupVaultNames = [backupvault["BackupVaultName"] for backupvault in backupvaults["BackupVaultList"]]
+
+              # For each Vault
+              # List Expired Recovery Points
+
+              for backupvault in backupVaultNames:
+                  recoverypoints = backup.list_recovery_points_by_backup_vault(BackupVaultName=backupvault)
+
+                  logger.info("Checking Recover points in vault: " + backupvault)
+                  for recoverypoint in recoverypoints["RecoveryPoints"]:
+                          logger.info("Deleting expired recovery point: " + recoverypoint["RecoveryPointArn"])
+                          result = backup.delete_recovery_point(BackupVaultName=backupvault,RecoveryPointArn=recoverypoint["RecoveryPointArn"])
+      Description: "Removes ALL AWS Backup Recovery Points"
+      FunctionName: !Sub "${AWS::StackName}-removal-all-recovery-points"
+      Handler: "index.lambda_handler_remove_all"
+      Role: !GetAtt backupCleanupRole.Arn
+      Runtime: "python3.7"
+      Timeout: 300
+      Tags:
+        - Key: "managed-by"
+          Value: "cloudformation"
+
+
+  backupCleanupRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-backup-cleanup"
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+
+  backupCleanupPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      Roles:
+        - !Ref backupCleanupRole
+      PolicyName:  AWSBackupCleanup
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - "elasticfilesystem:Backup"
+              - "elasticfilesystem:DescribeTags"
+              - "elasticfilesystem:DescribeFilesystems"
+              - "elasticfilesystem:DeleteFilesystem"
+            Resource: "arn:aws:elasticfilesystem:*:*:file-system/*"
+          -
+            Action:
+                - "dynamodb:DescribeTable"
+            Resource: "arn:aws:dynamodb:*:*:table/*"
+            Effect: Allow
+          -
+              Action:
+                  - "dynamodb:DescribeBackup"
+                  - "dynamodb:DeleteBackup"
+              Resource: "arn:aws:dynamodb:*:*:table/*/backup/*"
+              Effect: Allow
+          -
+              Effect: Allow
+              Action:
+                  - "rds:ListTagsForResource"
+                  - "rds:DescribeDBSnapshots"
+                  - "rds:DescribeDBInstances"
+              Resource: "*"
+          -
+              Effect: Allow
+              Action:
+                  - "rds:DeleteDBSnapshot"
+              Resource:
+                  - "arn:aws:rds:*:*:snapshot:awsbackup:*"
+          -
+              Effect: Allow
+              Action:
+                  - "ec2:DeleteSnapshot"
+              Resource: "arn:aws:ec2:*::snapshot/*"
+          -
+              Effect: Allow
+              Action:
+                  - "ec2:DescribeSnapshots"
+                  - "ec2:DescribeTags"
+                  - "ec2:DescribeImages"
+                  - "ec2:DescribeInstances"
+                  - "ec2:DescribeInstanceAttribute"
+                  - "ec2:DescribeInstanceCreditSpecifications"
+                  - "ec2:DescribeNetworkInterfaces"
+                  - "ec2:DescribeElasticGpus"
+                  - "ec2:DescribeSpotInstanceRequests"
+              Resource: "*"
+          -
+              Effect: Allow
+              Action:
+                  - "backup:DeleteRecoveryPoint"
+                  - "backup:DescribeBackupVault"
+                  - "backup:ListRecoveryPointsByBackupVault"
+              Resource: "*"
+          -
+              Effect: Allow
+              Action:
+                  - "ec2:DeleteSnapshot"
+                  - "ec2:DescribeVolumes"
+                  - "ec2:DescribeSnapshots"
+              Resource:
+                  - "arn:aws:ec2:*::snapshot/*"
+                  - "arn:aws:ec2:*:*:volume/*"
+          -
+              Action: "kms:DescribeKey"
+              Effect: Allow
+              Resource: "*"
+          -
+              Action: "kms:CreateGrant"
+              Effect: Allow
+              Resource: "*"
+              Condition:
+                  Bool:
+                      "kms:GrantIsForAWSResource": "true"
+          -
+              Action:
+                  - "kms:GenerateDataKeyWithoutPlaintext"
+              Effect: Allow
+              Resource: "arn:aws:kms:*:*:key/*"
+              Condition:
+                  StringLike:
+                      "kms:ViaService":
+                          - "ec2.*.amazonaws.com"
+          -
+              Action:
+                  - "tag:GetResources"
+              Resource: "*"
+              Effect: Allow
+
+
+Outputs:
+  Version:
+    Value: "backups-0.9.9"
+    Description: "Template Version"

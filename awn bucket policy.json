@@ -1,0 +1,88 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AWNCloudTrailPutObject",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+            },
+            "Action": "s3:PutObject",
+            "Resource": "arn:aws:s3:::awn-logs-bucket-966619411166-us-west-2/AWN/AWSLogs/966619411166/*",
+            "Condition": {
+                "StringEquals": {
+                    "s3:x-amz-acl": "bucket-owner-full-control"
+                }
+            }
+        },
+        {
+            "Sid": "AWNCloudTrailGetBucketAcl",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+            },
+            "Action": "s3:GetBucketAcl",
+            "Resource": "arn:aws:s3:::awn-logs-bucket-966619411166-us-west-2"
+        },
+        {
+  "Sid": "Deny non-HTTPS access",
+  "Effect": "Deny",
+  "Principal": {
+    "Service": "guardduty.amazonaws.com"
+  },
+  "Action": "s3:*",
+  "Resource": "arn:aws:s3:::awn-logs-bucket-966619411166-us-west-2/*",
+  "Condition": {
+    "Bool": {
+      "aws:SecureTransport": "false"
+    }
+  }
+},
+{
+  "Sid": "Deny incorrect encryption header",
+  "Effect": "Deny",
+  "Principal": {
+    "Service": "guardduty.amazonaws.com"
+  },
+  "Action": "s3:PutObject",
+  "Resource": "arn:aws:s3:::awn-logs-bucket-966619411166-us-west-2/*",
+  "Condition": {
+    "StringNotEquals": {
+      "s3:x-amz-server-side-encryption-aws-kms-key-id": "arn:aws:kms:us-west-2:966619411166:key/01e15b42-3067-40c1-af37-3aedc0a68d54"
+    }
+  }
+},
+{
+  "Sid": "Deny unencrypted object uploads",
+  "Effect": "Deny",
+  "Principal": {
+    "Service": "guardduty.amazonaws.com"
+  },
+  "Action": "s3:PutObject",
+  "Resource": "arn:aws:s3:::awn-logs-bucket-966619411166-us-west-2/*",
+  "Condition": {
+    "StringNotEquals": {
+      "s3:x-amz-server-side-encryption": "aws:kms"
+    }
+  }
+},
+{
+  "Sid": "Allow PutObject",
+  "Effect": "Allow",
+  "Principal": {
+    "Service": "guardduty.amazonaws.com"
+  },
+  "Action": "s3:PutObject",
+  "Resource": "arn:aws:s3:::awn-logs-bucket-966619411166-us-west-2/*"
+},
+{
+  "Sid": "Allow GetBucketLocation",
+  "Effect": "Allow",
+  "Principal": {
+    "Service": "guardduty.amazonaws.com"
+  },
+  "Action": "s3:GetBucketLocation",
+  "Resource": "arn:aws:s3:::awn-logs-bucket-966619411166-us-west-2"
+}
+    ]
+}

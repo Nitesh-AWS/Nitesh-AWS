@@ -1,0 +1,153 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template for creating VPC Transit Gateway Attachment'
+
+Parameters:
+
+  QUILTATTACH:
+    Description: Quilt VPC Attachment
+    Type: String
+    Default: tgw-attach-095a9a63ed3d23599
+
+  SVCSATTACH:
+    Description: Services VPC Attachment
+    Type: String
+    Default: tgw-attach-097592de9616d6194
+
+  INFRAATTACH:
+    Description: Infrastructure VPC Attachment
+    Type: String
+    Default: tgw-attach-0b9a0c7e22754958c
+
+  SANDBOXATTACH:
+    Description: Sandbox VPC Attachment
+    Type: String
+    Default: tgw-attach-01f90005d6b2809fb
+
+  USE1SERVICES:
+    Description: Services VPC CIDR
+    Type: String
+    Default: 10.40.0.0/16
+
+  USE1BIOINFO:
+    Description: Bio Info VPC CIDR
+    Type: String
+    Default: 10.50.0.0/16
+
+  USE1BIOINFOPROD:
+    Description: Bio Info Prod VPC CIDR
+    Type: String
+    Default: 10.55.0.0/16
+
+  USE1GXP:
+    Description: GxP VPC CIDR
+    Type: String
+    Default: 10.70.0.0/16
+
+  USE1GXPSTATING:
+    Description: GxP Staging VPC CIDR
+    Type: String
+    Default: 10.80.0.0/16
+
+  USE1INFRASTRUCTURE:
+    Description: Infrastructure VPC CIDR
+    Type: String
+    Default: 10.220.2.0/23
+
+  USW2QUILT:
+    Description: Quilt VPC CIDR
+    Type: String
+    Default: 10.25.0.0/16
+
+  USW2SERVICES:
+    Description: Services VPC CIDR
+    Type: String
+    Default: 10.35.0.0/16
+
+  USW2INFRASTRUCTURE:
+    Description: Infrastructure VPC CIDR
+    Type: String
+    Default: 10.210.0.0/16
+
+  LOCATION:
+    Description: AWS Region
+    Type: String
+    AllowedValues:
+      - USW2
+      - USE1
+      - EUC1
+
+  TGWID:
+    Description:  Transit Gateway ID (USW2-TGW-0636048e0a4a4d640 / USE1-TGW-0f420529ad2f44f8b)
+    Type: String
+    AllowedValues:
+      - tgw-0636048e0a4a4d640
+      - tgw-0f420529ad2f44f8b
+
+  TGWPEERATTACH:
+    Description: TGW Peering attachment
+    Type: String
+    Default: tgw-attach-07ef241020ea55341
+
+Resources:
+
+  TGWPEERRTB:
+    Type: "AWS::EC2::TransitGatewayRouteTable"
+    Properties:
+      TransitGatewayId: !Ref "TGWID"
+      Tags:
+        - Key: Name
+          Value: "TGW_PEER"
+
+  TGWPEERRTBASSOCIATION:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    DependsOn: TGWPEERRTB
+    Properties:
+      TransitGatewayAttachmentId: !Ref "TGWPEERATTACH"
+      TransitGatewayRouteTableId: !Ref "TGWPEERRTB"
+
+  QUILTRTBPROPAGATION:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "QUILTATTACH"
+      TransitGatewayRouteTableId: !Ref "TGWPEERRTB"
+
+  VIRSVCSRTBPROPAGATION:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "SVCSATTACH"
+      TransitGatewayRouteTableId: !Ref "TGWPEERRTB"
+
+  INFRARTBPROPAGATION:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "INFRAATTACH"
+      TransitGatewayRouteTableId: !Ref "TGWPEERRTB"
+
+  SANDBOXRTBPROPAGATION:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref "SANDBOXATTACH"
+      TransitGatewayRouteTableId: !Ref "TGWPEERRTB"
+
+  USE1PREFIXFLIST:
+    Type: AWS::EC2::PrefixList
+    Properties:
+      PrefixListName: "USE1PREFIXFLIST"
+      AddressFamily: "IPv4"
+      MaxEntries: 10
+      Entries:
+        - Cidr: !Ref "USE1SERVICES"
+          Description: "Services VPC"
+        - Cidr: !Ref "USE1BIOINFO"
+          Description: "Bio Info VPC"
+        - Cidr: !Ref "USE1BIOINFOPROD"
+          Description: "Bio Info Prod VPC"
+        - Cidr: !Ref "USE1GXP"
+          Description: "GxP VPC"
+        - Cidr: !Ref "USE1GXPSTATING"
+          Description: "GxP Staging VPC"
+        - Cidr: !Ref "USE1INFRASTRUCTURE"
+          Description: "Infrastructure VPC"
+      Tags:
+        - Key: "Name"
+          Value: "USE1PREFIXFLIST"

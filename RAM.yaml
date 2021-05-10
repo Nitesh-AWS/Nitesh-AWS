@@ -1,0 +1,24 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "Sharing Transit Gateway with Vir Bio Quilt"
+
+Parameters:
+
+  BIOQUILTID:
+    Description: Account ID of Vir Bio Quilt Account
+    Type: String
+    Default: 846377472459
+
+Resources:
+  TRANSITGATEWAYRESOUCESHARE:
+    Type: "AWS::RAM::ResourceShare"
+    Properties:
+      Name: !Sub "Transit Gateway Sharing with Vir Bio Quilt"
+      AllowExternalPrincipals: False
+      ResourceArns:
+        - !Sub "arn:aws:ec2:us-west-2:966619411166:transit-gateway/tgw-0636048e0a4a4d640"
+
+      Principals:
+        - !Ref "BIOQUILTID"
+      Tags:
+        - Key: "Name"
+          Value: "TGW SHARING TO BIO Quilt"

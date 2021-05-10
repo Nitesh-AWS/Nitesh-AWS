@@ -1,0 +1,20 @@
+{
+"Version": "2008-10-17",
+"Id": "s3-secured-policy-arn:aws:s3:::vir-cddv-staging-sftp-inbound"
+"Statement":[
+{
+"Sid": "DenyDeleteObjectsOperations"
+"Effect": "Deny",
+"Principal": "*",
+"Action": [
+    "s3:DeleteObject",
+    "s3:DeleteObjectVersion"
+]
+"Resource": "arn:aws:s3:::vir-cddv-staging-sftp-inbound/*",
+"Condition":{
+  "Bool":{
+    "aws:SecureTransport":"False"
+}
+}
+}
+]

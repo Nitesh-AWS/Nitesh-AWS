@@ -1,0 +1,231 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Conditions": {
+        "condExistingDetector": {
+            "Fn::Not": [
+                {
+                    "Condition": "condNewDetector"
+                }
+            ]
+        },
+        "condNewDetector": {
+            "Fn::Equals": [
+                "",
+                {
+                    "Ref": "GuardDutyDetectorID"
+                }
+            ]
+        }
+    },
+    "Description": "Arctic Wolf Networks: Enable Amazon GuardDuty for this account",
+    "Outputs": {
+        "AWNGuardDutyDetectorIDOutput": {
+            "Description": "ID for the GuardDuty detector",
+            "Export": {
+                "Name": "AWNGuardDutyDetectorID"
+            },
+            "Value": {
+                "Fn::If": [
+                    "condNewDetector",
+                    {
+                        "Ref": "AWNGuardDutyDetector"
+                    },
+                    {
+                        "Ref": "GuardDutyDetectorID"
+                    }
+                ]
+            }
+        }
+    },
+    "Parameters": {
+        "GuardDutyDetectorID": {
+            "Default": "",
+            "Description": "If you already have GuardDuty enabled in this account, provide its detector ID. New GuardDuty users should leave this parameter empty, and GuardDuty will be enabled on your behalf.",
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "AWNGuardDutyCWLStack": {
+            "DependsOn": [
+                "AWNGuardDutyLambdaFn",
+                "AWNGuardDutyLogGroup"
+            ],
+            "Properties": {
+                "Parameters": {
+                    "filterPattern": "\"GuardDuty: {\"",
+                    "logGroupName": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "/aws/lambda/",
+                                {
+                                    "Ref": "AWNGuardDutyLambdaFn"
+                                }
+                            ]
+                        ]
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "AWNCloudSensor",
+                        "Value": true
+                    },
+                    {
+                        "Key": "AWNCloudSensorBuildNumber",
+                        "Value": "0.30969"
+                    },
+                    {
+                        "Key": "AWNCloudSensorVersion",
+                        "Value": "1.15"
+                    }
+                ],
+                "TemplateURL": "https://arcticwolf-public.s3-us-west-2.amazonaws.com/install/aws-templates/1.15/cloudwatch_logs_template.json"
+            },
+            "Type": "AWS::CloudFormation::Stack"
+        },
+        "AWNGuardDutyDetector": {
+            "Condition": "condNewDetector",
+            "Properties": {
+                "Enable": "true"
+            },
+            "Type": "AWS::GuardDuty::Detector"
+        },
+        "AWNGuardDutyEventRule": {
+            "DependsOn": "AWNGuardDutyLambdaFn",
+            "Properties": {
+                "Description": "Forwards all GuardDuty findings to Arctic Wolf Networks",
+                "EventPattern": {
+                    "source": [
+                        "aws.guardduty"
+                    ]
+                },
+                "State": "ENABLED",
+                "Targets": [
+                    {
+                        "Arn": {
+                            "Fn::GetAtt": [
+                                "AWNGuardDutyLambdaFn",
+                                "Arn"
+                            ]
+                        },
+                        "Id": "TargetFunction"
+                    }
+                ]
+            },
+            "Type": "AWS::Events::Rule"
+        },
+        "AWNGuardDutyLambdaFn": {
+            "DependsOn": "AWNGuardDutyLambdaRole",
+            "Properties": {
+                "Code": {
+                    "ZipFile": {
+                        "Fn::Join": [
+                            "\n",
+                            [
+                                "from __future__ import print_function",
+                                "import json",
+                                "def send_finding(event, _context):",
+                                "  print(\"GuardDuty: %s\" % json.dumps(event, separators=(',', ':')))"
+                            ]
+                        ]
+                    }
+                },
+                "Handler": "index.send_finding",
+                "MemorySize": 128,
+                "Role": {
+                    "Fn::GetAtt": [
+                        "AWNGuardDutyLambdaRole",
+                        "Arn"
+                    ]
+                },
+                "Runtime": "python3.6",
+                "Timeout": 10
+            },
+            "Type": "AWS::Lambda::Function"
+        },
+        "AWNGuardDutyLambdaPermission": {
+            "DependsOn": [
+                "AWNGuardDutyLambdaFn",
+                "AWNGuardDutyEventRule"
+            ],
+            "Properties": {
+                "Action": "lambda:InvokeFunction",
+                "FunctionName": {
+                    "Fn::GetAtt": [
+                        "AWNGuardDutyLambdaFn",
+                        "Arn"
+                    ]
+                },
+                "Principal": "events.amazonaws.com",
+                "SourceArn": {
+                    "Fn::GetAtt": [
+                        "AWNGuardDutyEventRule",
+                        "Arn"
+                    ]
+                }
+            },
+            "Type": "AWS::Lambda::Permission"
+        },
+        "AWNGuardDutyLambdaRole": {
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": [
+                                "sts:AssumeRole"
+                            ],
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "lambda.amazonaws.com"
+                                ]
+                            }
+                        }
+                    ],
+                    "Version": "2012-10-17"
+                },
+                "Policies": [
+                    {
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Action": [
+                                        "logs:CreateLogStream",
+                                        "logs:PutLogEvents"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        "arn:aws:logs:*:*:*"
+                                    ]
+                                }
+                            ],
+                            "Version": "2012-10-17"
+                        },
+                        "PolicyName": "root"
+                    }
+                ]
+            },
+            "Type": "AWS::IAM::Role"
+        },
+        "AWNGuardDutyLogGroup": {
+            "DependsOn": "AWNGuardDutyLambdaFn",
+            "Properties": {
+                "LogGroupName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "/aws/lambda/",
+                            {
+                                "Ref": "AWNGuardDutyLambdaFn"
+                            }
+                        ]
+                    ]
+                },
+                "RetentionInDays": {
+                    "Fn::ImportValue": "AWNLogRetentionDays"
+                }
+            },
+            "Type": "AWS::Logs::LogGroup"
+        }
+    }
+}

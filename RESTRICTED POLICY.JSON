@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Stmt1620160367975",
+      "Action": [
+        "ec2:DeleteKeyPair",
+        "ec2:DeleteNetworkInterface",
+        "ec2:DeleteSnapshot",
+        "ec2:DeleteTags",
+        "ec2:DeleteVolume",
+        "ec2:DeregisterImage",
+        "ec2:DetachNetworkInterface",
+        "ec2:TerminateInstances"
+      ],
+      "Effect": "Deny",
+      "Resource": "arn:aws:ec2:*:845002772821:instance/*"
+    }
+  ]
+}

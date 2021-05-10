@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Vir Biotechnology. CloudFormation template that provisions single EC2 Instance.
+
+Parameters:
+
+  Name:
+    Description:  Specify the server name
+    Type:         String
+
+  EC2InstanceType:
+    Description:  Amazon EC2 instance type
+    Type:         String
+    Default:      t2.micro
+
+  IMAGEID:
+    Description: AMI id of the EC2 instance
+    Type:        String
+
+  SUBNETID:
+    Description: Subnet ID
+    Type:        String
+
+  SECURITYGROUPID:
+    Description: Security Group IDs
+    Type:        String
+    Default:     "On-Prem_Plus_VPC"
+
+
+  VPCName:
+    Description:  Specify the VPC Name
+    Type:         String
+    AllowedValues:
+      - INFRASTRUCTURE
+
+  KeyPairName:
+    Description: Public/private key pairs allow you to securely connect to your instance after it launches
+    Type: 'AWS::EC2::KeyPair::KeyName'
+
+  BootVolSize:
+    Description:    EC2 Boot volume size
+    Type:           String
+    Default:        "100"
+
+  BootVolType:
+    Description:    EC2 Boot volume type
+    Type:           String
+    Default:        "gp2"
+    AllowedValues:
+      - gp2
+      - io1
+      - sc1
+      - st1
+
+  DelOnTerm:
+    Description:    EBS termination
+    Type:           String
+    Default:        "true"
+    AllowedValues:
+      - true
+      - false
+
+
+
+Resources:
+
+# EC2 Instance
+  EC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !Ref "IMAGEID"
+      InstanceType: !Ref 'EC2InstanceType'
+      SubnetId: !Ref "SUBNETID"
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: !Ref "BootVolSize"
+            VolumeType: !Ref "BootVolType"
+            DeleteOnTermination: !Ref "DelOnTerm"
+
+      KeyName: !Ref 'KeyPairName'
+
+
+
+
+
+Outputs:
+
+  EC2InstanceIP:
+    Description: EC2 IP Address
+    Value: !GetAtt 'EC2Instance.PrivateIp'
+
+  EC2InstanceID:
+    Description: EC2 Instance ID
+    Value: !Ref 'EC2Instance'

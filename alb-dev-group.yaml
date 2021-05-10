@@ -1,0 +1,1597 @@
+#################################################################################################################
+                                              # W A R N I N G #
+# The Basic WAF rules cause very strange problems with Drupal deployments, especially uploading images.
+# If you are planning to deploy a WAF for an environment with Drupal, consider recommending one of the
+# WAF Marketplace rules, like the Trend Micro Managed Rules for AWS WAF - Content Management System (CMS)
+#################################################################################################################
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Internal ALB - HTTP with Optional HTTPS.  Optional end to end SSL"
+
+
+Parameters:
+
+  pVpcId:
+    Type: "AWS::EC2::VPC::Id"
+    Description: "VPC ID"
+
+  pVpcCidr:
+    Type: "String"
+    Description: "VPC Cidr"
+
+  pWebSubnet1:
+    Type: "AWS::EC2::Subnet::Id"
+    Description: "Private Web/App Subnet ID in AZ1"
+
+  pWebSubnet2:
+    Type: "AWS::EC2::Subnet::Id"
+    Description: "Private Web/App Subnet ID in AZ2"
+
+  pTagEnvironment:
+    Type: "String"
+    Description: "Environment type for default resource tagging"
+    Default: "production"
+    AllowedValues:
+      - "production"
+      - "staging"
+      - "sandbox"
+      - "test"
+      - "development"
+      - "dev"
+      - "qa"
+
+  pTagOwner:
+    Type: "String"
+    Description: Owner of the resources.  Person/Department,etc
+    Default: ""
+
+  pEnableAlbHttpsListener:
+    Type: "String"
+    Description: "Create ALB HTTPS Listener and Rules"
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+
+  pAlbCert:
+    Type: "String"
+    Description: "ARN of the ACM certificate"
+
+  pHostname1:
+    Type: "String"
+    Description: "REQUIRED - Host 1 based route added to both 80 and 443 ALB listeners."
+
+  pHostname2:
+    Type: "String"
+    Description: "REQUIRED - Host 2 based route added to both 80 and 443 ALB listeners."
+
+  pHostname3:
+    Type: "String"
+    Description: "REQUIRED - Host 3 based route added to both 80 and 443 ALB listeners."
+
+  pHostname4:
+    Type: "String"
+    Description: "REQUIRED - Host 4 based route added to both 80 and 443 ALB listeners."
+
+  pHostname5:
+    Type: "String"
+    Description: "REQUIRED - Host 5 based route added to both 80 and 443 ALB listeners."
+
+  pHostname6:
+    Type: "String"
+    Description: "REQUIRED - Host 6 based route added to both 80 and 443 ALB listeners."
+
+  pHostname7:
+    Type: "String"
+    Description: "REQUIRED - Host 7 based route added to both 80 and 443 ALB listeners."
+
+  pHostname8:
+    Type: "String"
+    Description: "REQUIRED - Host 8 based route added to both 80 and 443 ALB listeners."
+
+  pHostname9:
+    Type: "String"
+    Description: "REQUIRED - Host 9 based route added to both 80 and 443 ALB listeners."
+
+  pHostname10:
+    Type: "String"
+    Description: "REQUIRED - Host 10 based route added to both 80 and 443 ALB listeners."
+
+  pHostname11:
+    Type: "String"
+    Description: "REQUIRED - Host 11 based route added to both 80 and 443 ALB listeners."
+
+  pHostname12:
+    Type: "String"
+    Description: "REQUIRED - Host 12 based route added to both 80 and 443 ALB listeners."
+
+  pHostnameSearch:
+    Type: "String"
+    Description: "REQUIRED - Search host based route added to both 80 and 443 ALB listeners."
+
+  pHostname14:
+    Type: "String"
+    Description: "REQUIRED - Host 14 based route added to both 80 and 443 ALB listeners."
+
+  pHostname15:
+    Type: "String"
+    Description: "REQUIRED - Host 15 based route added to both 80 and 443 ALB listeners."
+
+  pHealthCheckCodesHttp:
+    Type: "String"
+    Description: "Examples: 200, multiple with 200,302 or a range with 200-299"
+    Default: "200,302"
+
+  pHealthCheckPathHttp:
+    Type: "String"
+    Description: "For the port 80 listener only"
+    Default: "/"
+
+  pHealthCheckCodesHttpS:
+    Type: "String"
+    Description: "Optional - 443 only. Examples: 200, multiple with 200,302 or a range with 200-299"
+    Default: "200,302"
+
+  pHealthCheckPathHttpS:
+    Type: "String"
+    Description: "For the optional port 443 listener only"
+    Default: "/"
+
+  pEc2Targetinstance1:
+    Type: "String"
+    Description: "Instance ID of the first ALB target"
+
+  pEc2Targetinstance2:
+    Type: "String"
+    Description: "Instance ID of the second ALB target"
+
+  pEc2Targetinstance3:
+    Type: "String"
+    Description: "Instance ID of the third ALB target"
+
+  pEc2Targetinstance6:
+    Type: "String"
+    Description: "Instance ID of the sixth ALB target"
+
+  pEc2Targetinstance7:
+    Type: "String"
+    Description: "Instance ID of the seventh ALB target"
+
+  pEc2Targetinstance9:
+    Type: "String"
+    Description: "Instance ID of the ninth ALB target"
+
+  pEc2Targetinstance10:
+    Type: "String"
+    Description: "Instance ID shared API server"
+
+  pEc2Targetinstance12:
+    Type: "String"
+    Description: "Instance ID of the twelfth ALB target"
+
+  pEc2TargetSearch:
+    Type: "String"
+    Description: "Instance ID of the thirteenth ALB target, which is search server"
+
+  pEc2Targetinstance14:
+    Type: "String"
+    Description: "Instance ID of the fourteenth ALB target"
+
+  pAlbDeletionProtection:
+    Type: "String"
+    Description: "Enable deletion protection on ALB"
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "true"
+
+  pS3enableLogging:
+    Type: "String"
+    Description: "Logs to encrypted S3 Bucket"
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pS3LogBucket:
+    Type: "String"
+    Description: "Target Bucket for Load Balancer logs."
+
+  pS3LogBucketLifeCycleDays:
+    Type: "Number"
+    Description: "Days to retain logs in S3"
+    MinValue: "1"
+    MaxValue: "365"
+    Default: "30"
+
+  pS3createLogBucket:
+    Type: "String"
+    Description: "This bucket must exist even if not in use."
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pCreateSG:
+    Type: "String"
+    Description: "Create and attach a new internal SG"
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  pExistingSG:
+    Type: "AWS::EC2::SecurityGroup::Id"
+    Description: "Existing SG for Internal ALB. Empty if creating a new SG."
+
+
+  pAlbTimeout:
+    Type: "Number"
+    Description: "Timeout in seconds"
+    MinValue: "1"
+    MaxValue: "4000"
+    Default: "600"
+
+  pAlbName:
+    Type: "String"
+    Description: "Name will be part of DNS name."
+
+  pAlbSslEndToEnd:
+    Type: "String"
+    Description: "False will enable HTTPS->HTTP.  If true HTTPS -> HTTPS target group."
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+
+  pTargetGroupStickySessions:
+    Type: "String"
+    Description: "Applies to all target groups."
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+
+  pTargetGroupDeregistrationDelay:
+    Type: "Number"
+    Description: "Seconds before deregistering a target."
+    Default: "300"
+    MinValue: "0"
+    MaxValue: "3600"
+
+  pTargetGroupStickyDuration:
+    Type: "Number"
+    Description: "Session cookie duration in seconds."
+    Default: "86400"  # 1 day
+    MinValue: "1"
+    MaxValue: "604800" # 7 Days
+
+
+Metadata:
+
+  AWS::CloudFormation::Interface:
+      ParameterGroups:
+        - Label:
+            default: "Network Settings"
+          Parameters:
+              - pVpcId
+              - pVpcCidr
+              - pWebSubnet1
+              - pWebSubnet2
+        - Label:
+            default: "ALB Settings"
+          Parameters:
+            - pAlbName
+            - pEnableAlbHttpsListener
+            - pAlbSslEndToEnd
+            - pAlbCert
+            - pAlbDeletionProtection
+            - pAlbTimeout
+            - pHostname1
+            - pHostname2
+            - pHostname3
+            - pHostname4
+            - pHostName5
+            - pHostName6
+            - pHostname7
+            - pHostname8
+            - pHostname9
+            - pHostname10
+            - pHostname11
+            - pHostname12
+            - pHostnameSearch
+            - pHostname14
+            - pHostname15
+            - pEc2Targetinstance1
+            - pEc2Targetinstance2
+            - pEc2Targetinstance3
+            - pEc2Targetinstance6
+            - pEc2Targetinstance7
+            - pEc2Targetinstance9
+            - pEc2Targetinstance10
+            - pEc2Targetinstance12
+            - pEc2TargetSearch
+            - pEc2Targetinstance14
+            - pExistingSG
+            - pCreateSG
+        - Label:
+            default: "ALB Health Check Settings"
+          Parameters:
+            - pHealthCheckPathHttp
+            - pHealthCheckCodesHttp
+            - pHealthCheckPathHttpS
+            - pHealthCheckCodesHttpS
+        - Label:
+            default: "S3 ALB Log Settings"
+          Parameters:
+            - pS3enableLogging
+            - pS3createLogBucket
+            - pS3LogBucket
+            - pS3LogBucketLifeCycleDays
+        - Label:
+            default: "Target Group Settings"
+          Parameters:
+            - pTargetGroupStickySessions
+            - pTargetGroupDeregistrationDelay
+            - pTargetGroupStickyDuration
+        - Label:
+            default: "Tagging"
+          Parameters:
+            - pTagEnvironment
+            - pTagOwner
+      ParameterLabels:
+        pVpcId:
+          default: "VPC ID"
+        pVpcCidr:
+          default: "VPC CIDR"
+        pWebSubnet1:
+          default: "Web Subnet (AZ 1)"
+        pWebSubnet2:
+          default: "Web Subnet (AZ 2)"
+        pS3enableLogging:
+          default: "Enable ALL ALB Logging to S3"
+        pS3createLogBucket:
+          default: "Create S3 ALB Log Bucket"
+        pS3LogBucket:
+          default: "S3 ALB Log Bucket"
+        pS3LogBucketLifeCycleDays:
+          default: "S3 ALB Log Retention"
+        pEnableAlbHttpsListener:
+          default: "Enable HTTPS"
+        pAlbName:
+          default: "ALB Name"
+        pAlbCert:
+          default: "HTTPS Cert ARN"
+        pAlbDeletionProtection:
+          default: "ALB Deletion Protection"
+        pAlbTimeout:
+          default: "ALB Timeout"
+        pHostname1:
+          default: "Hostname 1"
+        pHostname2:
+          default: "Hostname 2"
+        pHostname3:
+          default: "Hostname 3"
+        pHostname4:
+          default: "Hostname 4"
+        pHostname5:
+          default: "Hostname 5"
+        pHostname6:
+          default: "Hostname 6"
+        pHostname7:
+          default: "Hostname 7"
+        pHostname8:
+          default: "Hostname 8"
+        pHostname9:
+          default: "Hostname 9"
+        pHostname10:
+          default: "Hostname 10"
+        pHostname11:
+          default: "Hostname 11"
+        pCreateSG:
+          default: "Create an internal SG."
+        pExistingSG:
+          default: "Existing SG to attach"
+        pEc2Targetinstance1:
+          default: "Target Group Instance 1"
+        pEc2Targetinstance2:
+          default: "Target Group Instance 2"
+        pEc2Targetinstance3:
+          default: "Target Group Instance 3"
+        pTagEnvironment:
+          default: "Environment Tag"
+        pTagOwner:
+          default: "Owner Tag"
+        pHealthCheckPathHttp:
+          default: "HTTP Health Check Path"
+        pHealthCheckCodesHttp:
+          default: "HTTP Health Check Codes"
+        pHealthCheckPathHttpS:
+          default: "HTTPS Health Check Path"
+        pHealthCheckCodesHttpS:
+          default: "HTTPS Health Check Codes"
+        pAlbSslEndToEnd:
+          default: "SSL End to End"
+        pTargetGroupStickySessions:
+          default: "Sticky Sessions"
+        pTargetGroupDeregistrationDelay:
+          default: "Deregistration Delay"
+        pTargetGroupStickyDuration:
+          default: "Stickiness Duration"
+
+
+Mappings:
+
+  # http://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-access-logs.html#access-logging-bucket-permissions
+  RegionMap:
+    us-east-1:
+      LbAccountId: "127311923021"   # US East (N. Virginia)
+    us-east-2:
+      LbAccountId: "033677994240"   # US East (Ohio)
+    us-west-1:
+      LbAccountId: "027434742980"   # US West (N. California)
+    us-west-2:
+      LbAccountId: "797873946194"   # US West (Oregon)
+    ca-central-1:
+      LbAccountId: "985666609251"   # Canada (Central)
+    eu-central-1:
+      LbAccountId: "054676820928"   # EU (Frankfurt)
+    eu-west-1:
+      LbAccountId: "156460612806"   # EU (Ireland)
+    eu-west-2:
+      LbAccountId: "652711504416"   # EU (London)
+    eu-west-3:
+      LbAccountId: "009996457667"   # EU (Paris)
+    ap-northeast-1:
+      LbAccountId: "582318560864"   # Asia Pacific (Tokyo)
+    ap-northeast-2:
+      LbAccountId: "600734575887"   # Asia Pacific (Seoul)
+    ap-northeast-3:
+      LbAccountId: "383597477331"   # Asia Pacific (Osaka-Local)
+    ap-southeast-1:
+      LbAccountId: "114774131450"   # Asia Pacific (Singapore)
+    ap-southeast-2:
+      LbAccountId: "783225319266"   # Asia Pacific (Sydney)
+    ap-south-1:
+      LbAccountId: "718504428378"   # Asia Pacific (Mumbai)
+    sa-east-1:
+      LbAccountId: "507241528517"   # South America (Sao Paulo)
+
+
+Conditions:
+
+  CondCreateAlbHttpsListener: !Equals ["true", !Ref pEnableAlbHttpsListener]
+  Conds3CreateLogBucket: !Equals ["true", !Ref pS3createLogBucket]
+  CondAlbSslEndToEnd: !Equals ["true", !Ref pAlbSslEndToEnd]
+  CondTargetGroupStickySessions: !Equals ["true", !Ref pTargetGroupStickySessions]
+  CondCreateVPCSG: !Equals ["true", !Ref pCreateSG]
+  CondExistingSG: !Equals ["false", !Ref pCreateSG]
+
+
+Resources:
+
+  s3bucketAlb:
+    Type: "AWS::S3::Bucket"
+    Condition: "Conds3CreateLogBucket"
+    Properties:
+      BucketName: !Ref pS3LogBucket
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+      LifecycleConfiguration:           # http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-lifecycleconfig.html
+        Rules:
+        - Id: !Join [" ", ["Expire in ", !Ref pS3LogBucketLifeCycleDays, "days"]]
+          Status: "Enabled"
+          ExpirationInDays: !Ref pS3LogBucketLifeCycleDays
+      Tags:
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+
+  s3bucketPolicyAlb:
+    Type: "AWS::S3::BucketPolicy"
+    Condition: "Conds3CreateLogBucket"
+    Properties:
+      Bucket: !Ref s3bucketAlb
+      PolicyDocument:
+        Statement:
+          - Action:
+              - "s3:PutObject"
+            Effect: "Allow"
+            Resource:
+              - !Join ["", ["arn:aws:s3:::", !Ref s3bucketAlb, "/*"]]
+            Principal:
+              AWS: !FindInMap [RegionMap, !Ref "AWS::Region", LbAccountId]
+
+  alb:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    DependsOn: "s3bucketAlb"
+    Properties:
+      Name: !Ref pAlbName
+      LoadBalancerAttributes:
+        - Key:  "idle_timeout.timeout_seconds"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_LoadBalancerAttribute.html
+          Value: !Ref pAlbTimeout
+        - Key: "deletion_protection.enabled"
+          Value: !Ref pAlbDeletionProtection
+        - Key: "access_logs.s3.enabled"
+          Value: !Ref pS3enableLogging
+        - Key: "access_logs.s3.bucket"
+          Value: !Ref pS3LogBucket
+        - Key: "access_logs.s3.prefix"
+          Value: !Ref pAlbName
+      Scheme: internal
+      SecurityGroups:
+        - !If [CondCreateVPCSG, !Ref sgPrivateAlb, !If [CondExistingSG, !Ref pExistingSG, !Ref "AWS::NoValue"]]
+      Subnets:
+        - !Ref pWebSubnet1
+        - !Ref pWebSubnet2
+      Tags:
+        - Key: "Name"
+          Value: !Ref pAlbName
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+
+  albListener80:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Host: '#{host}'
+            Query: '#{query}'
+            Path: '/#{path}'
+            Port: '443'
+            StatusCode: HTTP_301
+      LoadBalancerArn: !Ref alb
+      Port: "80"
+      Protocol: "HTTP"
+
+  albListener443:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref pAlbCert
+      DefaultActions:
+        - Type: "forward"
+          TargetGroupArn: !If [ CondAlbSslEndToEnd, !Ref targetGroup443Host1, !Ref targetGroup80Host1 ]
+      LoadBalancerArn: !Ref alb
+      Port: '443'
+      Protocol: "HTTPS"
+
+  # HTTP
+  albRuleHttpHost1:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup80Host1
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname1
+      ListenerArn: !Ref albListener80
+      Priority: "95"
+
+  # HTTPS
+  albRuleHttpSHost1:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !If [ CondAlbSslEndToEnd, !Ref targetGroup443Host1, !Ref targetGroup80Host1 ]
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname1
+      ListenerArn: !Ref albListener443
+      Priority: "95"
+
+  # HTTP
+  albRuleHttpHost2:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup80Host2
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname2
+      ListenerArn: !Ref albListener80
+      Priority: "100"
+
+  # HTTPS
+  albRuleHttpSHost2:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !If [ CondAlbSslEndToEnd, !Ref targetGroup443Host2, !Ref targetGroup80Host2 ]
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname2
+      ListenerArn: !Ref albListener443
+      Priority: "100"
+
+  # HTTPS
+  albRuleHttpSHost3:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Host3
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname3
+      ListenerArn: !Ref albListener443
+      Priority: "93"
+
+  # HTTPS
+  albRuleHttpSHost3Api:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Dsun
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname3
+        - Field: path-pattern
+          Values:
+            - "/api/*"
+      ListenerArn: !Ref albListener443
+      Priority: "44"
+
+  albRuleHttpSHost3Retrieve:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Dsun
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - "retrieve.dev.ds.vir.bio"
+      ListenerArn: !Ref albListener443
+      Priority: "38"
+
+  # HTTPS
+  albRuleHttpSHost4:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Share
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname4
+      ListenerArn: !Ref albListener443
+      Priority: "98"
+
+  # HTTPS
+  albRuleHttpSHost5:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Share
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname5
+      ListenerArn: !Ref albListener443
+      Priority: "89"
+
+  # HTTP
+  albRuleHttpHost6:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Properties:
+      Actions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Host: '#{host}'
+            Query: '#{query}'
+            Path: '/#{path}'
+            Port: '443'
+            StatusCode: HTTP_301
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname6
+      ListenerArn: !Ref albListener80
+      Priority: "85"
+
+  # HTTPS
+  albRuleHttpSHost6:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !If [ CondAlbSslEndToEnd, !Ref targetGroup443Host6, !Ref targetGroup80Host6 ]
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname6
+      ListenerArn: !Ref albListener443
+      Priority: "85"
+
+  # HTTPS
+  albRuleHttpSHost7:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Host7
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname7
+      ListenerArn: !Ref albListener443
+      Priority: "65"
+
+  # HTTPS
+  albRuleHttpSHost8:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Share
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname8
+      ListenerArn: !Ref albListener443
+      Priority: "62"
+
+  # Listener for RStudio Connect staging server, which was promoted to production. Can use this listener if we spin up anther staging instance
+  # albRuleHttpSHost9:
+  #   Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+  #   Condition: "CondCreateAlbHttpsListener"
+  #   Properties:
+  #     Actions:
+  #       - TargetGroupArn: !Ref targetGroup443Host9
+  #         Type: "forward"
+  #     Conditions:
+  #       - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+  #         Values:
+  #           - !Ref pHostname9
+  #     ListenerArn: !Ref albListener443
+  #     Priority: "59"
+
+  # HTTPS
+  albRuleHttpSHost10:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Host10
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname10
+      ListenerArn: !Ref albListener443
+      Priority: "45"
+
+  # HTTPS
+  albRuleHttpSHost11:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Host10
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname11
+      ListenerArn: !Ref albListener443
+      Priority: "43"
+
+  # HTTPS
+  albRuleHttpSHost12:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Host12
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname12
+      ListenerArn: !Ref albListener443
+      Priority: "46"
+
+  # HTTPS
+  albRuleHttpSHost13:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Search
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostnameSearch
+      ListenerArn: !Ref albListener443
+      Priority: "47"
+
+  # HTTPS
+  albRuleHttpSHost14:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Host14
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname14
+      ListenerArn: !Ref albListener443
+      Priority: "36"
+
+  # HTTPS
+  albRuleHttpSHost15:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Condition: "CondCreateAlbHttpsListener"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroup443Search
+          Type: "forward"
+      Conditions:
+        - Field: "host-header"  # http://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_RuleCondition.html
+          Values:
+            - !Ref pHostname15
+      ListenerArn: !Ref albListener443
+      Priority: "34"
+
+  targetGroup443Share:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttpS     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "share", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "share", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: "i-0f1def51fa7a1f91a"
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Dsun:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttpS     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "dsun", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "dsun", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: "i-05e34666cf857bdd0"
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup80Host1:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttp
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTP"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttp     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "80"]]
+      Port: "80"
+      Protocol: "HTTP"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "80"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance1
+          Port: "80"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Host1:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttpS     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance1
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup80Host2:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttp
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTP"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttp     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "host2", "80"]]
+      Port: "80"
+      Protocol: "HTTP"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "host2", "80"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance2
+          Port: "80"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Host2:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttpS     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "host2", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "host2", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance2
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Host3:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttpS     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "host3", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "host3", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance3
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup80Host6:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttp
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTP"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttp     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "host6", "80"]]
+      Port: "80"
+      Protocol: "HTTP"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "host6", "80"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance6
+          Port: "80"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Host6:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttpS     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "host6", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "host6", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance6
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Host7:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "30"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: !Ref pHealthCheckCodesHttpS     # Multiple with "200,302" or a range "200-299"
+      Name: !Join ["-", [!Ref pAlbName, "host7", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "host7", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance7
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Host9:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "60"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: "307"
+      Name: !Join ["-", [!Ref pAlbName, "host9", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "host9", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance9
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  # this is the shared API server
+  targetGroup443Host10:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "60"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: "307"
+      Name: !Join ["-", [!Ref pAlbName, "h10", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "h10", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance10
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Host12:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "60"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: "307"
+      Name: !Join ["-", [!Ref pAlbName, "h12", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "h12", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance12
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Search:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "60"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: "307,302,200"
+      Name: !Join ["-", [!Ref pAlbName, "h13", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "h13", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2TargetSearch
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  targetGroup443Host14:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: "CondAlbSslEndToEnd"
+    Properties:
+      HealthCheckIntervalSeconds: "60"
+      HealthCheckPath: !Ref pHealthCheckPathHttpS
+      HealthCheckPort: "traffic-port"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckTimeoutSeconds: "5"
+      HealthyThresholdCount: "2"
+      UnhealthyThresholdCount: "2"
+      Matcher:
+        HttpCode: "307"
+      Name: !Join ["-", [!Ref pAlbName, "h14", "443"]]
+      Port: "443"
+      Protocol: "HTTPS"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "h14", "443"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+      Targets:
+        - Id: !Ref pEc2Targetinstance14
+          Port: "443"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref pTargetGroupDeregistrationDelay
+        - Key: "stickiness.enabled"
+          Value: !If [ CondTargetGroupStickySessions, "true", "false" ]
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: !Ref pTargetGroupStickyDuration
+      VpcId: !Ref pVpcId
+
+  sgPrivateAlb:
+    Type: "AWS::EC2::SecurityGroup"
+    Condition: "CondCreateVPCSG"
+    Properties:
+      GroupName: !Join ["-", [!Ref pAlbName, "internal"]]
+      GroupDescription: "internal alb access"
+      VpcId: !Ref pVpcId
+      SecurityGroupIngress:
+        - IpProtocol: "-1"
+          FromPort: "-1"
+          ToPort: "-1"
+          CidrIp: !Ref pVpcCidr
+          Description: "All VPC Traffic"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: "-1"
+          ToPort: "-1"
+          CidrIp: "0.0.0.0/0"
+          Description: "all"
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [!Ref pAlbName, "internal"]]
+        - Key: "managed-by"
+          Value: "cloudformation"
+        - Key: "environment"
+          Value: !Ref pTagEnvironment
+        - Key: "owner"
+          Value: !Ref pTagOwner
+
+  #
+  # WAF with XSS and SQLi - From https://docs.aws.amazon.com/solutions/latest/aws-waf-security-automations/template.html
+  #
+
+  aclWafAssoc1:
+    Type: "AWS::WAFRegional::WebACLAssociation"
+    Properties:
+      ResourceArn: !Ref alb
+      WebACLId: !Ref acl1
+
+  acl1:
+    Type: "AWS::WAFRegional::WebACL"
+    Properties:
+      MetricName: "ACL1"
+      Name: "ACL1"
+      DefaultAction:
+        Type: "ALLOW"
+      Rules:
+        - Action:
+            Type: "BLOCK"
+          Priority: "10"
+          RuleId: !Ref ruleSqli1
+        - Action:
+            Type: "BLOCK"
+          Priority: "20"
+          RuleId: !Ref ruleXSS1
+
+  ruleSqli1:
+    Type: "AWS::WAFRegional::Rule"
+    Properties:
+      MetricName: "MitigateSQLInjections1"
+      Name: "Mitigate SQL Injections1"
+      Predicates:
+        - Type: "SqlInjectionMatch"
+          Negated: "false"
+          DataId: !Ref matchSQLi1
+
+  matchSQLi1:
+    Type: "AWS::WAFRegional::SqlInjectionMatchSet"
+    Properties:
+      Name: "Detect SQL Injections"
+      SqlInjectionMatchTuples:
+        - FieldToMatch:
+            Type: "URI"
+          TextTransformation: "URL_DECODE"
+        - FieldToMatch:
+            Type: "URI"
+          TextTransformation: "HTML_ENTITY_DECODE"
+        - FieldToMatch:
+            Type: "QUERY_STRING"
+          TextTransformation: "URL_DECODE"
+        - FieldToMatch:
+            Type: "QUERY_STRING"
+          TextTransformation: "HTML_ENTITY_DECODE"
+        - FieldToMatch:
+            Type: "BODY"
+          TextTransformation: "URL_DECODE"
+        - FieldToMatch:
+            Type: "BODY"
+          TextTransformation: "HTML_ENTITY_DECODE"
+        - FieldToMatch:
+            Type: "HEADER"
+            Data: "cookie"
+          TextTransformation: "URL_DECODE"
+        - FieldToMatch:
+            Type: "HEADER"
+            Data: "cookie"
+          TextTransformation: "HTML_ENTITY_DECODE"
+
+  ruleXSS1:
+    Type: "AWS::WAFRegional::Rule"
+    Properties:
+      MetricName: "MitigateXSS1"
+      Name: "Mitigate XSS Injections1"
+      Predicates:
+        - Type: "XssMatch"
+          Negated: "false"
+          DataId: !Ref matchXSS1
+
+  matchXSS1:
+    Type: "AWS::WAFRegional::XssMatchSet"
+    Properties:
+      Name: "Detect XSS"
+      XssMatchTuples:
+        - FieldToMatch:
+            Type: "URI"
+          TextTransformation: "URL_DECODE"
+        - FieldToMatch:
+            Type: "URI"
+          TextTransformation: "HTML_ENTITY_DECODE"
+        - FieldToMatch:
+            Type: "BODY"
+          TextTransformation: "URL_DECODE"
+        - FieldToMatch:
+            Type: "BODY"
+          TextTransformation: "HTML_ENTITY_DECODE"
+        - FieldToMatch:
+            Type: "HEADER"
+            Data: "cookie"
+          TextTransformation: "URL_DECODE"
+        - FieldToMatch:
+            Type: "HEADER"
+            Data: "cookie"
+          TextTransformation: "HTML_ENTITY_DECODE"
+
+
+Outputs:
+
+  ALBdnsName:
+    Value: !GetAtt alb.DNSName
+    Description: "Use this as a CNAME for any DNS records"

@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template for creating VPC Transit Gateway Attachment'
+
+Parameters:
+
+  # VSFATTACH:
+  #   Description: San Francisco VPN Attachment
+  #   Type: String
+  #   Default: tgw-attach-08f9ea1b799ea2732
+  #
+  # VPDXATTACH:
+  #   Description: Portland VPN Attachment
+  #   Type: String
+  #   Default: tgw-attach-0b3f92f7bb9f6c86e
+  #
+  # VSTLATTACH:
+  #   Description: St Louis VPN Attachment
+  #   Type: String
+  #   Default: tgw-attach-0caeb220bbbc103e6
+  #
+  # VBZATTACH:
+  #   Description: Bellenzona VPN Attachment
+  #   Type: String
+  #   Default: tgw-attach-04fba10c06188714f
+
+#UPDATE CHILD VPC NAME
+
+  VPCNAME:
+    Description: Bio-Non-GxP-VPC-us-east-1
+    Type: String
+    Default: Bio-Non-GxP-VPC-us-east-1
+
+#UPDATE CHILD VPC ID
+
+  VPCID:
+    Description: VPC ID
+    Type: String
+    Default: vpc-0dd2266e5a67aabda
+
+  # LOCATION:
+  #   Description: AWS Region
+  #   Type: String
+  #   AllowedValues:
+  #     - USW2
+  #     - USE1
+  #     - EUC1
+
+  # ONPREMRTB:
+  #   Description: Default Route Table
+  #   Type: String
+  #   Default: tgw-rtb-06fb1a0a41edb79a2
+
+  PVTSUBNET1:
+    Description: Private Subnet ID in AZ6
+    Type: String
+    Default: subnet-051011ecefa7ca492
+
+  PVTSUBNET2:
+    Description: Private Subnet ID in AZ1
+    Type: String
+    Default: subnet-033e8d7ab1a794525
+
+
+  TGWID:
+    Description:  Transit Gateway ID (USW2-TGW-0636048e0a4a4d640 / USE1-TGW-0f420529ad2f44f8b)
+    Type: String
+    AllowedValues:
+      - tgw-0636048e0a4a4d640
+      - tgw-0f420529ad2f44f8b
+
+  # VIRSERVICESATTACH:
+  #   Description: Vir Services TGW attachment
+  #   Type: String
+  #   Default: tgw-attach-097592de9616d6194
+
+Resources:
+  VIRBIOINFOATTACH:
+   Type: AWS::EC2::TransitGatewayAttachment
+   Properties:
+     TransitGatewayId: !Ref "TGWID"
+     VpcId: !Ref "VPCID"
+     SubnetIds:
+       - !Ref "PVTSUBNET1"
+       - !Ref "PVTSUBNET2"
+       
+     Tags:
+       - Key: Name
+         Value: !Ref "VPCNAME"
+
+  # VIRSERVICESRTB:
+  #   Type: "AWS::EC2::TransitGatewayRouteTable"
+  #   Properties:
+  #     TransitGatewayId: !Ref "TGWID"
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Ref "VPCNAME"
+  #
+  # VIRSERVICESRTBASSOCIATION:
+  #   Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+  #   DependsOn: VIRSERVICESRTB
+  #   Properties:
+  #     TransitGatewayAttachmentId: !Ref "VIRSERVICESATTACH"
+  #     TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+  #
+  # VIRSERVCESRTBPROPAGATIONVSF:
+  #   Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+  #   Properties:
+  #     TransitGatewayAttachmentId: !Ref "VSFATTACH"
+  #     TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+  #
+  # VIRSERVICESRTBPROPAGATIONPDX:
+  #   Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+  #   Properties:
+  #     TransitGatewayAttachmentId: !Ref "VPDXATTACH"
+  #     TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+  #
+  # VIRSERVICESRTBPROPAGATIONSTL:
+  #   Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+  #   Properties:
+  #     TransitGatewayAttachmentId: !Ref "VSTLATTACH"
+  #     TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+  #
+  # VIRSERVICESRTBPROPAGATIONBZ:
+  #   Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+  #   Properties:
+  #     TransitGatewayAttachmentId: !Ref "VBZATTACH"
+  #     TransitGatewayRouteTableId: !Ref "VIRSERVICESRTB"
+
+  # ONPREMRTBPROPAGATION:
+  #   Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+  #   Properties:
+  #     TransitGatewayAttachmentId: !Ref "VIRSERVICESATTACH"
+  #     TransitGatewayRouteTableId: !Ref "ONPREMRTB"

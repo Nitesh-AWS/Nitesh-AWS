@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Metadata:
+  License: Apache-2.0
+Description: 'This template creates two IAM roiles 1. Administrator Access, 2. Billing Access in Master Account.'
+
+Parameters:
+  AdministratorAccess:
+    Type: String
+    Description: 'ARN of AWS managed policy'
+    Default: 'arn:aws:iam::aws:policy/AdministratorAccess'
+  BillingAccess:
+    Type: String
+    Description: 'ARN of AWS managed policy'
+    Default: 'arn:aws:iam::aws:policy/job-function/Billing'
+
+Resources:
+  AWSAdministratorAccess:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: 'AWS_Master_AdministratorAccess'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref AdministratorAccess
+
+  AWSBillingAccess:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: 'AWS_Master_BillingAccess'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref BillingAccess
